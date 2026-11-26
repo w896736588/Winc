@@ -282,3 +282,50 @@ fn the_branch_menu_copies_the_name_to_the_clipboard() {
     assert_eq!(app.clipboard_text().as_deref(), Some("origin/feat"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 基于远程分支签出的新分支带着别的分支的上游：推送、同步都发布到远程的同名分支，不更新
+/// 上游那个分支；上游本来就与分支同名时照旧推送。
+#[test]
+fn a_branch_that_tracks_another_branch_publishes_to_its_own_name() {
+    use crate::app::SyncState;
+    use crate::app::git::commit::PushIntent;
+    use winc_editor::git::Branch;
+
+    let dir = sample_folder("git-push-same-name");
+    let mut app = app_with(&dir, false);
+    let root = app.editor.root().unwrap().to_path_buf();
+    app.git.root = Some(root);
+    app.git.remotes = vec!["origin".to_owned()];
+    app.git.status = Some(Status {
+        head: Some(Head::Branch("feat".into())),
+        ..Status::default()
+    });
+    let branch = |name: &str, remote: bool, upstream: Option<&str>| Branch {
+        name: name.to_owned(),
+        remote,
+        current: !remote,
+        upstream: upstream.map(str::to_owned),
+        gone: false,
+        oid: String::new(),
+        time: 0,
+        local: String::new(),
+        ahead: 0,
+        behind: 0,
+    };
+    app.git.branches = vec![
+        branch("feat", false, Some("origin/main")),
+        branch("origin/main", true, None),
+    ];
+    assert!(!app.push_tracks_same_name());
+    assert_eq!(app.git_sync_state(), SyncState::Publish);
+    assert_eq!(
+        app.push_intent(),
+        Some(PushIntent::Publish("origin".to_owned()))
+    );
+
+    // 上游与当前分支同名：照旧推送到上游。
+    app.git.branches[0].upstream = Some("origin/feat".to_owned());
+    assert!(app.push_tracks_same_name());
+    assert_eq!(app.push_intent(), Some(PushIntent::Push));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -408,20 +408,36 @@ pub(crate) fn stash_title(stash: &Stash) -> String {
 }
 
 impl App {
-    /// 推送当前分支要做的事：有上游时推送，没有时发布到 `publish_remote`（状态还没读到时按
-    /// `origin`、第一个远程的顺序选择）；没有远程时提示原因并返回 `None`。
+    /// 推送当前分支要做的事：上游就是远程的同名分支时推送，否则发布到远程的同名分支（状态
+    /// 还没读到时按 `publish_remote`、上游所在的远程、`origin`、第一个远程的顺序选择）；没有
+    /// 远程时提示原因并返回 `None`。
+    ///
+    /// 从远程分支签出的新分支带着别的分支的上游（例如从 `origin/master` 签出的 `feat`）：
+    /// 推送不能把 `feat` 送到 `master`，而是发到远程上的同名分支。
     pub(in crate::app) fn push_intent(&mut self) -> Option<PushIntent> {
-        if self.has_upstream() {
+        let (branch, tracked) = self.current_tracking();
+        if let Some((_, target)) = &tracked
+            && target == &branch
+        {
             return Some(PushIntent::Push);
         }
         let fallback = (self.git.remotes.iter())
             .find(|r| *r == "origin")
             .or(self.git.remotes.first());
-        let remote = self.git.publish_remote.clone().or(fallback.cloned());
+        let remote = (self.git.publish_remote.clone())
+            .or_else(|| tracked.map(|(remote, _)| remote))
+            .or(fallback.cloned());
         if remote.is_none() {
             self.notify(NoticeKind::Warning, t!("git-push-no-remote"));
         }
         remote.map(PushIntent::Publish)
+    }
+
+    /// 当前分支的上游是否就是远程的同名分支：只有这时推送才是更新上游（见
+    /// [`App::push_intent`]）。
+    pub(in crate::app) fn push_tracks_same_name(&self) -> bool {
+        let (branch, tracked) = self.current_tracking();
+        tracked.is_some_and(|(_, target)| target == branch)
     }
 
     /// 拉取、同步时是否变基（设置 `git.pull`）；按 Git 的配置时为 `None`。

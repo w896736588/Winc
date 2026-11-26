@@ -665,3 +665,74 @@ fn the_classic_card_keeps_amend_above_the_message_and_buttons_on_the_left() {
     assert!(parts.push.is_none() && parts.amend.is_some());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 从远程分支签出的新分支带着那个分支的上游：同步控件按没有上游显示「发布」，推送对话框
+/// 先填远程上的同名分支；推送以后远程的同名分支收到提交，上游换成它，原来那个分支不动。
+#[test]
+fn a_branch_created_from_another_branch_publishes_to_its_own_name() {
+    let Some((mut app, root)) = git_app("git-sync-new-branch", false) else {
+        return;
+    };
+    let bare = root.with_extension("bare.git");
+    git_in(&root, &["init", "-q", "--bare", bare.to_str().unwrap()]);
+    git_in(&root, &["remote", "add", "origin", bare.to_str().unwrap()]);
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "base"]);
+    git_in(&root, &["push", "-q", "origin", "main"]);
+    // 从 `origin/main` 签出的分支带着 `origin/main` 这个上游。
+    git_in(
+        &root,
+        &["switch", "-q", "--create", "feat", "--track", "origin/main"],
+    );
+    git_in(&root, &["commit", "-q", "--allow-empty", "-m", "待推送"]);
+    app.git_refresh();
+    app.run_action(Action::ShowCommit);
+    let branch = (app.git.branches.iter()).find(|b| b.current).unwrap();
+    assert_eq!(branch.upstream.as_deref(), Some("origin/main"));
+    assert_eq!(app.git_sync_state(), SyncState::Publish);
+
+    app.press_commit(CommitTarget::Sync);
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
+    assert!(matches!(&dialog.kind, FormKind::Transfer(_)));
+    assert_eq!(dialog.base.as_deref(), Some("origin"));
+    assert_eq!(dialog.name.text(), "feat");
+    press_alert(&mut app, 0);
+    app.git_refresh();
+
+    // 远程的同名分支收到了这次提交，`main` 没动；上游换成了远程的同名分支。
+    let head = String::from_utf8(
+        Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let remote = |name: &str| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&bare)
+            .args(["rev-parse", "--verify", "--quiet"])
+            .arg(format!("refs/heads/{name}"))
+            .output()
+            .unwrap();
+        (out.status.success()).then(|| String::from_utf8(out.stdout).unwrap())
+    };
+    assert_eq!(remote("feat").as_deref(), Some(head.as_str()));
+    assert_ne!(remote("main").as_deref(), Some(head.as_str()));
+    let upstream = String::from_utf8(
+        Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["rev-parse", "--abbrev-ref", "@{upstream}"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(upstream.trim(), "origin/feat");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&bare);
+}

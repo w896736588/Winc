@@ -80,7 +80,9 @@ impl App {
         if self.git.branches.is_empty() {
             return SyncState::Hidden;
         }
-        if !self.has_upstream() {
+        // 上游是别的分支（从远程分支签出的新分支）时按没有上游处理：同步、推送都发布到远程
+        // 的同名分支，不更新上游那个分支。
+        if !self.push_tracks_same_name() {
             return SyncState::Publish;
         }
         match (status.ahead, status.behind) {
