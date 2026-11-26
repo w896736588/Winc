@@ -94,6 +94,7 @@ menu-tree-collapse-all = Collapse All Folders
 menu-tree-locate = Reveal Active File
 menu-reveal-source = Show in Source
 menu-filter-no-match = No matches
+menu-filter-hint = Type to filter
 menu-text-width = Text Width
 menu-markdown-line-numbers = Show Line Numbers
 menu-add-bookmark = Add Bookmark

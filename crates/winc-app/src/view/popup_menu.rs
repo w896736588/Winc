@@ -18,6 +18,11 @@ const KEY_GAP: f32 = 28.0;
 const RIGHT_PAD: f32 = 12.0;
 /// 菜单的最小、最大宽度（逻辑像素）。
 const WIDTH: (f32, f32) = (160.0, 420.0);
+/// 菜单的最大高度（逻辑像素）：长列表在此之内滚动，不铺满整个窗口。
+const MAX_HEIGHT: f32 = 420.0;
+/// 滚动条的宽度（逻辑像素）和离菜单右边的距离。
+const SCROLLBAR_W: f32 = 3.0;
+const SCROLLBAR_INSET: f32 = 5.0;
 /// 菜单离窗口边缘至少留出的距离（逻辑像素）。
 pub(super) const MARGIN: f32 = 8.0;
 /// 行底色左右缩进的距离（逻辑像素）。
@@ -42,9 +47,9 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     for l in 0..popup.levels.len() {
         let (w, content) = measure(app, frame, &popup.levels[l].rows);
         let w = if l == 0 { w.max(popup.min_width) } else { w };
-        // 宽高不超过窗口减去两侧的边距；窗口比两侧边距还小时为 0。
+        // 宽高不超过窗口减去两侧的边距，也不超过 [`MAX_HEIGHT`]；窗口比两侧边距还小时为 0。
         let w = w.min(window.w - 2.0 * MARGIN).max(0.0);
-        let h = content.min(window.h - 2.0 * MARGIN).max(0.0);
+        let h = content.min(window.h - 2.0 * MARGIN).clamp(0.0, MAX_HEIGHT);
         let (x, y) = if l == 0 {
             let mut y = popup.at.1;
             // 打勾的那一行对准弹出的位置。
@@ -132,6 +137,9 @@ fn measure(app: &App, frame: &mut Frame<'_>, rows: &[PopupRow]) -> (f32, f32) {
                 frame.measure(FontKind::Ui, size, name) + arrow
             }
             PopupRow::Query(query) => frame.measure(FontKind::Ui, size, query),
+            PopupRow::QueryHint => {
+                frame.measure(FontKind::Ui, size, winc_i18n::t!("menu-filter-hint"))
+            }
         };
         w = w.max(lead + text + RIGHT_PAD);
     }
@@ -247,6 +255,30 @@ fn draw_level(app: &App, frame: &mut Frame<'_>, level: &PopupLevel) {
                 frame.rect_clipped(line, p.separator, 0.0, clip);
                 continue;
             }
+            // 搜索提示：与键入的文字同一位置，文字改用次要颜色。
+            PopupRow::QueryHint => {
+                let title_row = Rect::new(rect.x, rect.y, rect.w, ROW);
+                let cy = icon_center_y(app, title_row, app.fonts.ui);
+                icons::search(frame, (rect.x + 13.0, cy), 0.75, p.text_muted, clip);
+                let text_x = rect.x + CHECK_COLUMN + icons;
+                ui_text(
+                    frame,
+                    app,
+                    text_x,
+                    title_row,
+                    winc_i18n::t!("menu-filter-hint"),
+                    p.text_dim,
+                    clip,
+                );
+                let line = Rect::new(
+                    rect.x + ROW_INSET + 6.0,
+                    rect.bottom() - 1.0,
+                    rect.w - 2.0 * ROW_INSET - 12.0,
+                    1.0,
+                );
+                frame.rect_clipped(line, p.separator, 0.0, clip);
+                continue;
+            }
         };
         let hovered = level.hover == Some(i);
         if hovered {
@@ -295,4 +327,34 @@ fn draw_level(app: &App, frame: &mut Frame<'_>, level: &PopupLevel) {
             ui_text_small(frame, app, text_x, line, &subtitle, dim, clip);
         }
     }
+    draw_scrollbar(app, frame, level);
+}
+
+/// 内容比菜单高时，在右边画一条滚动条；滚轮和方向键滚动时随之移动。
+fn draw_scrollbar(app: &App, frame: &mut Frame<'_>, level: &PopupLevel) {
+    let card = level.rect;
+    let visible = card.h - 2.0 * POPUP_PAD;
+    if visible <= 0.0 || level.content <= visible + 0.5 {
+        return;
+    }
+    let track = Rect::new(
+        card.right() - SCROLLBAR_INSET - SCROLLBAR_W,
+        card.y + POPUP_PAD,
+        SCROLLBAR_W,
+        visible,
+    );
+    let ratio = (visible / level.content).clamp(0.0, 1.0);
+    let thumb = (track.h * ratio).clamp(SCROLLBAR_W * 3.0, track.h);
+    let max = (level.content - visible).max(0.0);
+    let top = match max > 0.0 {
+        true => (level.scroll / max).clamp(0.0, 1.0),
+        false => 0.0,
+    };
+    let y = track.y + (track.h - thumb) * top;
+    frame.rect_clipped(
+        Rect::new(track.x, y, SCROLLBAR_W, thumb),
+        app.palette.scrollbar,
+        1.5,
+        card,
+    );
 }

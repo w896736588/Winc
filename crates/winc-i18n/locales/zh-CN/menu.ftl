@@ -88,6 +88,7 @@ menu-tree-collapse-all = 折叠所有目录
 menu-tree-locate = 定位当前文件
 menu-reveal-source = 在源代码中显示
 menu-filter-no-match = 无匹配项
+menu-filter-hint = 输入以筛选
 menu-text-width = 正文宽度
 menu-markdown-line-numbers = 显示行号
 menu-add-bookmark = 添加书签

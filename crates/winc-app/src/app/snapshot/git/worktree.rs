@@ -874,6 +874,62 @@ fn the_new_worktree_dialog_builds_what_it_shows() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 「基于」菜单：分支很多时限高、可以滚动，顶部的搜索提示行在键入文字后换成筛选结果。
+#[test]
+fn the_base_menu_is_capped_scrolls_and_filters_while_typing() {
+    use crate::app::PopupRow;
+    use crate::app::input::context_menu::MenuTarget;
+    use winit::keyboard::Key;
+
+    let Some((mut app, root)) = git_app("git-base-filter", false) else {
+        return;
+    };
+    for i in 0..30 {
+        let name = format!("branch-{i:02}");
+        git_in(&root, &["branch", &name]);
+    }
+    app.git_refresh();
+    app.open_branch_dialog(None, None);
+    app.edit_field(|f| f.insert("from-filter"));
+    app.open_context_menu(MenuTarget::FormBase, (0.0, 0.0));
+    paint(&mut app);
+
+    // 列表比菜单高：高度受限，顶部有搜索提示，滚轮可以滚动。
+    let level = &app.popup().unwrap().levels[0];
+    assert_eq!(level.rows.first(), Some(&PopupRow::QueryHint));
+    assert!(level.rect.h <= 420.5, "{}", level.rect.h);
+    assert!(level.content > level.rect.h);
+    let at = (level.rect.x + 10.0, level.rect.y + 10.0);
+    let max = (level.content - level.rect.h).max(0.0);
+    app.pointer.mouse = at;
+    assert!(app.popup_wheel(-60.0));
+    assert!(app.popup().unwrap().levels[0].scroll > 0.0);
+    assert!(app.popup().unwrap().levels[0].scroll <= max);
+
+    // 键入文字筛选：提示行换成键入的文字，只留下含它的分支。
+    for c in ["branch-1"] {
+        for ch in c.chars() {
+            assert!(app.popup_logical_key(&Key::Character(ch.to_string().into())));
+        }
+    }
+    let rows = &app.popup().unwrap().levels[0].rows;
+    assert_eq!(rows.first(), Some(&PopupRow::Query("branch-1".to_owned())));
+    let listed: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| match row {
+            PopupRow::Item { label, .. } => Some(label.title.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        listed.iter().all(|title| title.starts_with("branch-1")),
+        "{listed:?}"
+    );
+    assert!(listed.contains(&"branch-10"), "{listed:?}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn form_dialog_moves_focus_with_tab_and_keeps_failures_in_the_card() {
     use crate::layout::DialogPart;

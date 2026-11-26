@@ -50,13 +50,15 @@ pub(crate) enum PopupRow {
     },
     /// 筛选时第一行写出键入的文字，前面是搜索图标；不能选中。
     Query(String),
+    /// 长菜单顶部的搜索提示行：搜索图标和一句说明，键入文字后换成 [`PopupRow::Query`]。
+    QueryHint,
 }
 
 impl PopupRow {
-    /// 是否可以悬停和选中；分隔线和不可用的命令返回 `false`。
+    /// 是否可以悬停和选中；分隔线、键入的文字和搜索提示返回 `false`。
     pub(crate) fn selectable(&self) -> bool {
         match self {
-            PopupRow::Separator | PopupRow::Query(_) => false,
+            PopupRow::Separator | PopupRow::Query(_) | PopupRow::QueryHint => false,
             PopupRow::Item { enabled, .. } => *enabled,
             PopupRow::Submenu { .. } | PopupRow::Entry { .. } => true,
         }
@@ -92,6 +94,9 @@ pub(crate) struct PopupLevel {
     pub loading: Option<(PathBuf, bool)>,
 }
 
+/// 菜单行数超过该值时，顶部显示一行搜索提示：更长的列表要滚动才能看全，键入文字筛选更方便。
+const FILTER_HINT_ROWS: usize = 15;
+
 /// 窗口内绘制的菜单。
 #[derive(Debug, Clone)]
 pub(crate) struct PopupMenu {
@@ -119,8 +124,14 @@ pub(crate) struct PopupMenu {
 impl PopupMenu {
     /// 由第一级菜单的各行 `rows` 创建。
     ///
-    /// `at` 是弹出位置，`flags` 是 `(at_checked, right_aligned)` 两个标志。
-    pub(crate) fn new(rows: Vec<PopupRow>, at: (f32, f32), flags: (bool, bool)) -> PopupMenu {
+    /// `at` 是弹出位置，`flags` 是 `(at_checked, right_aligned)` 两个标志。全是命令的长列表
+    /// （不能逐项悬停浏览完的「基于」分支、语言等）顶部加一行搜索提示，键入文字即可筛选。
+    pub(crate) fn new(mut rows: Vec<PopupRow>, at: (f32, f32), flags: (bool, bool)) -> PopupMenu {
+        let listed = !(rows.iter())
+            .any(|row| matches!(row, PopupRow::Submenu { .. } | PopupRow::Entry { .. }));
+        if listed && rows.len() > FILTER_HINT_ROWS {
+            rows.insert(0, PopupRow::QueryHint);
+        }
         PopupMenu {
             levels: vec![PopupLevel {
                 rows,

@@ -621,6 +621,38 @@ fn typing_filters_the_language_menu() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 长菜单限制高度、可以滚动，顶部显示一行搜索提示；键入文字后提示行换成键入的内容。
+#[test]
+fn long_menus_are_capped_and_show_a_search_hint() {
+    use crate::app::PopupRow;
+    use crate::app::status::status_bar::StatusItem;
+    use winit::keyboard::Key;
+    let dir = sample_folder("popup-capped");
+    let mut app = app_with(&dir.join("a.txt"), false);
+    paint(&mut app);
+    app.open_status_menu(StatusItem::Language);
+    paint(&mut app);
+
+    let level = &app.popup().unwrap().levels[0];
+    assert!(level.rows.len() > 15, "{}", level.rows.len());
+    assert_eq!(level.rows.first(), Some(&PopupRow::QueryHint));
+    assert!(level.rect.h <= 420.5, "{}", level.rect.h);
+    assert!(level.content > level.rect.h);
+    let at = (level.rect.x + 10.0, level.rect.y + 10.0);
+    app.pointer.mouse = at;
+    assert!(app.popup_wheel(-40.0));
+    assert!(app.popup().unwrap().levels[0].scroll > 0.0);
+
+    for ch in "Ru".chars() {
+        assert!(app.popup_logical_key(&Key::Character(ch.to_string().into())));
+    }
+    assert_eq!(
+        app.popup().unwrap().levels[0].rows.first(),
+        Some(&PopupRow::Query("Ru".to_owned()))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 截图：键入「ru」筛选语言菜单（`popup-filter-light`）。
 #[test]
 #[ignore = "截图，手动运行"]
