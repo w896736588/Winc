@@ -25,6 +25,16 @@ of releasing it again. To retry a failed build, rerun the Release workflow on th
 | `release/windows/` | `package.ps1` (NSIS, MSI, portable zip), `sign.ps1`, `verify.ps1`, installer templates |
 | `release/common/` | Shared by all platforms: version, build config, update signing, asset staging, publication |
 
+## Remote server programs
+
+Every package carries `winc-server-Linux-x86_64` and `winc-server-Linux-aarch64`: Winc uploads the
+matching one to the host when an SSH connection opens. `cargo xtask server` builds them into
+`target/remote-server/` for both architectures on any runner. The release workflows run it before
+packaging; the packaging entry points (`cargo xtask app`, `release/windows/package.ps1` and the
+`release/linux/**/package.sh` scripts) also build the programs on demand when a local run skipped
+that step, so a package can no longer ship without them. A build that does lack them starts
+normally but reports that the installation is missing the remote server program.
+
 ## Version and source
 
 The release version is the single line of the `VERSION` file at the repository root. To prepare a

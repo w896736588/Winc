@@ -29,8 +29,16 @@ Copy-Item "$PSScriptRoot/path.ps1" $stage -Force
 New-Item -ItemType Directory -Force "$stage/icons" | Out-Null
 Copy-Item "$PSScriptRoot/icons/*.ico" "$stage/icons" -Force
 Copy-Item "$root/target/x86_64-unknown-linux-musl/release/winc-watch" $stage -Force
-# The remote server for each Linux architecture, uploaded to hosts on connection.
+# The remote server for each Linux architecture, uploaded to hosts on connection. A local packaging
+# run may not have built them yet; build them here so no installer ships without them.
 $servers = @('winc-server-Linux-x86_64', 'winc-server-Linux-aarch64')
+if ($servers | Where-Object { -not (Test-Path "$root/target/remote-server/$_") }) {
+    Push-Location $root
+    & cargo xtask server
+    $built = $LASTEXITCODE
+    Pop-Location
+    if ($built -ne 0) { throw 'cannot build the remote server programs' }
+}
 foreach ($name in $servers) {
     if (-not (Test-Path "$root/target/remote-server/$name")) { throw "missing $name" }
     Copy-Item "$root/target/remote-server/$name" $stage -Force

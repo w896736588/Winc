@@ -11,6 +11,8 @@ if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 release_dir="target/$target/release"
+source release/common/ensure-servers.sh
+ensure_remote_servers "$PWD"
 workdir=$(mktemp -d)
 trap 'rm -rf -- "$workdir"' EXIT
 install -m755 "$release_dir/winc" "$release_dir/winc-pty" \

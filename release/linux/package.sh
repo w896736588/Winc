@@ -6,6 +6,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 source release/linux/target.sh
 source release/linux/baseline.env
+source release/common/ensure-servers.sh
 version="$(node release/common/version.mjs)"
 deb_version="${version//-/~}"
 release="$root/target/$target/release"
@@ -27,6 +28,7 @@ mkdir -p "$deb/DEBIAN" "$deb/usr/share/doc/winc" "$bundle/deb" "$bundle/appimage
 cp -a "$appdir/usr" "$deb/"
 # The remote server is uploaded to Linux hosts, never run from here: it lives beside the libraries,
 # not on the PATH. Both architectures ship in every package.
+ensure_remote_servers "$root"
 servers=("$root/target/remote-server/winc-server-Linux-x86_64" "$root/target/remote-server/winc-server-Linux-aarch64")
 install -Dm755 "${servers[@]}" -t "$deb/usr/lib/winc"
 # File manager context menus and the winc:// link handler belong to the installed package only: the

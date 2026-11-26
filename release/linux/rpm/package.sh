@@ -10,6 +10,8 @@ version="$(node release/common/version.mjs)"
 # RPM versions cannot contain `-`; `~` sorts prereleases before the final release, as in the deb.
 rpm_version="${version//-/~}"
 release_dir="target/$target/release"
+source release/common/ensure-servers.sh
+ensure_remote_servers "$PWD"
 workdir="$(mktemp -d)"
 trap 'rm -rf -- "$workdir"' EXIT
 files="$workdir/files"
