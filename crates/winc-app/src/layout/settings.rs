@@ -70,6 +70,12 @@ pub enum Setting {
     DefaultLanguage,
     /// 粘贴时按内容识别语言（`editor.detectLanguageOnPaste`）。
     DetectLanguageOnPaste,
+    /// 「转到定义」的符号索引收录哪些语言（`editor.indexExclude`，取消的语言不收录）。
+    IndexLanguages,
+    /// 建立符号索引时跳过依赖目录（`editor.indexIgnoreDependencies`）。
+    IndexIgnoreDependencies,
+    /// 建立符号索引时跳过构建输出目录（`editor.indexIgnoreBuild`）。
+    IndexIgnoreBuild,
     /// 拖动选中的文字来移动或复制（`editor.dragAndDrop`）。
     DragAndDrop,
     /// 粘滞滚动：滚动时在编辑区顶部钉住当前所在的函数、类和标题。
@@ -315,6 +321,9 @@ impl Setting {
                 SettingsPage::Editor
             }
             S::VimRelativeNumber | S::VimYankHighlight => SettingsPage::Editor,
+            S::IndexLanguages | S::IndexIgnoreDependencies | S::IndexIgnoreBuild => {
+                SettingsPage::Editor
+            }
             S::PreviewOnClick | S::DropFolder | S::CompactFolders | S::Outline | S::FindInFiles => {
                 SettingsPage::Files
             }
@@ -380,6 +389,9 @@ impl Setting {
             S::NewFileOnStartup => "editor.newFileOnStartup",
             S::DefaultLanguage => "editor.defaultLanguage",
             S::DetectLanguageOnPaste => "editor.detectLanguageOnPaste",
+            S::IndexLanguages => "editor.indexExclude",
+            S::IndexIgnoreDependencies => "editor.indexIgnoreDependencies",
+            S::IndexIgnoreBuild => "editor.indexIgnoreBuild",
             S::DragAndDrop => "editor.dragAndDrop",
             S::StickyScroll => "editor.stickyScroll",
             S::SmoothCaret => "editor.smoothCaretMovement",
@@ -482,6 +494,9 @@ impl Setting {
             Setting::NewFileOnStartup => t!("settings-new-file-on-startup"),
             Setting::DefaultLanguage => t!("settings-default-language"),
             Setting::DetectLanguageOnPaste => t!("settings-detect-language-on-paste"),
+            Setting::IndexLanguages => t!("settings-index-languages"),
+            Setting::IndexIgnoreDependencies => t!("settings-index-ignore-dependencies"),
+            Setting::IndexIgnoreBuild => t!("settings-index-ignore-build"),
             Setting::DragAndDrop => t!("settings-drag-and-drop"),
             Setting::DropFolder => t!("settings-drop-folder"),
             Setting::FindInFiles => t!("settings-find-in-files"),
@@ -591,6 +606,9 @@ impl Setting {
             Setting::NewFileOnStartup => Some(t!("settings-new-file-on-startup-desc")),
             Setting::DefaultLanguage => Some(t!("settings-default-language-desc")),
             Setting::DetectLanguageOnPaste => Some(t!("settings-detect-language-on-paste-desc")),
+            Setting::IndexLanguages => Some(t!("settings-index-languages-desc")),
+            Setting::IndexIgnoreDependencies => Some(t!("settings-index-ignore-dependencies-desc")),
+            Setting::IndexIgnoreBuild => Some(t!("settings-index-ignore-build-desc")),
             Setting::DragAndDrop => Some(t!("settings-drag-and-drop-desc")),
             Setting::DropFolder => Some(t!("settings-drop-folder-desc")),
             Setting::FindInFiles => Some(t!("settings-find-in-files-desc")),
@@ -736,13 +754,16 @@ impl Setting {
             | Setting::TerminalConfirmClose
             | Setting::TerminalPrompt
             | Setting::TerminalShellIntegration
-            | Setting::TerminalApplicationPriority => SettingControl::Switch,
+            | Setting::TerminalApplicationPriority
+            | Setting::IndexIgnoreDependencies
+            | Setting::IndexIgnoreBuild => SettingControl::Switch,
             Setting::FormatCommand(_)
             | Setting::FixCommand(_)
             | Setting::TerminalShell
             | Setting::GitPath
             | Setting::LatexPath => SettingControl::Command,
             Setting::SkipOnSave
+            | Setting::IndexLanguages
             | Setting::Language
             | Setting::BackgroundImage
             | Setting::BackgroundFit

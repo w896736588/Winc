@@ -302,6 +302,7 @@ impl App {
                 (MenuTarget::AddLanguage(Task::Fix), row.row.inset(4.0, 4.0))
             }
             Setting::SkipOnSave => (MenuTarget::SkipOnSave, row.control),
+            Setting::IndexLanguages => (MenuTarget::IndexLanguages, row.control),
             // 右边对齐控件：不长于控件时与控件同宽，字体名更长时向左展开。
             Setting::Language
             | Setting::RenderWhitespace

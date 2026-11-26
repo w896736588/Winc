@@ -4,7 +4,9 @@
 //! 每处定义带有类别（[`Kind`]）。带缩进的绑定、赋值和形参是局部变量，用法只在当前文件中查找；
 //! 赋值之前已有定义时是重新赋值，不算定义。C 系语言类型在前的声明另有写法。
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use regex::Regex;
 use ropey::Rope;
@@ -12,6 +14,32 @@ use winc_syntax::Language;
 
 use super::usages::token_kinds;
 use crate::workspace::project_search::Query;
+
+/// 已编译的定义正则，按合并后的模式复用：反复点击同一个名字、Finder 与 Filter 共用一份。
+///
+/// 编译与模式长度成正比，一次十几毫秒，是转到定义在界面线程上同步耗时的主要部分。
+static COMPILED: LazyLock<Mutex<HashMap<String, Regex>>> = LazyLock::new(Default::default);
+
+/// 缓存的正则数上限；超出时整体清空。每个模式几十 KB，点击过的名字通常不多。
+const COMPILED_MAX: usize = 16;
+
+/// 编译 `pattern`；同样的模式已经编译过时直接复用。
+fn compiled(pattern: &str) -> Option<Regex> {
+    if let Some(regex) = COMPILED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(pattern)
+    {
+        return Some(regex.clone());
+    }
+    let regex = Regex::new(pattern).ok()?;
+    let mut cache = COMPILED.lock().unwrap_or_else(PoisonError::into_inner);
+    if cache.len() >= COMPILED_MAX {
+        cache.clear();
+    }
+    cache.insert(pattern.to_owned(), regex.clone());
+    Some(regex)
+}
 
 /// 定义的类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,7 +436,7 @@ impl Finder {
             return None;
         }
         let forms = forms(name, local);
-        let regex = Regex::new(&combine(&forms, ignore_case)).ok()?;
+        let regex = compiled(&combine(&forms, ignore_case))?;
         let forms = forms
             .into_iter()
             .enumerate()
@@ -634,10 +662,9 @@ pub fn receiver_type(text: &Rope, line: usize, col: usize, name: &str) -> Option
         return Some(receiver);
     }
     let escaped = regex::escape(&receiver);
-    let declared = Regex::new(&format!(
+    let declared = compiled(&format!(
         r"(?:\b(?P<a>[A-Z]\w*)(?:<[^;(){{}}=]*>)?(?:\[\])?[*&\s]+{escaped}\s*(?:[;=,)]|$)|\b{escaped}\s*:\s*(?:&\s*(?:mut\s+)?|\*)?(?:\w+(?:::|\.))*(?P<b>[A-Z]\w*)|\b{escaped}\s*:?=\s*(?:new\s+)?(?:\w+(?:::|\.))*(?P<c>[A-Z]\w*)\s*[(:{{<])"
-    ))
-    .ok()?;
+    ))?;
     let mut found = None;
     for (index, slice) in text.lines().enumerate() {
         if index > line && found.is_some() {

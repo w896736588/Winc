@@ -4,6 +4,7 @@
 mod appearance;
 #[cfg(unix)]
 mod format;
+mod index;
 mod search;
 mod shortcuts;
 mod terminal;

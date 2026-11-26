@@ -77,6 +77,12 @@ pub struct Config {
     pub default_language: Option<String>,
     /// 向空的未命名纯文本文档粘贴时是否按内容识别语言，默认为是。
     pub detect_language_on_paste: Option<bool>,
+    /// 「转到定义」的符号索引不收录的语言（语言 id，如 `go`），默认为空：收录全部代码文件。
+    pub index_exclude: Vec<String>,
+    /// 建立符号索引时跳过依赖目录（`node_modules`、`vendor` 等），默认为是。
+    pub index_ignore_dependencies: Option<bool>,
+    /// 建立符号索引时跳过构建输出目录（`dist`、`build`、`target` 等），默认为是。
+    pub index_ignore_build: Option<bool>,
     /// 是否可以拖动选中的文字来移动或复制（`editor.dragAndDrop`），默认为是。
     pub drag_and_drop: Option<bool>,
     /// 把目录拖进已打开目录的窗口时怎样处理，默认每次询问。

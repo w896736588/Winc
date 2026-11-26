@@ -236,6 +236,9 @@ pub enum MenuCommand {
     /// 设置中「排除的语言」菜单的一项：切换某种语言保存时是否跳过格式化和修复，
     /// 参数为语言序号（从 0 起）。
     SkipOnSave(usize),
+    /// 设置中「索引的文件类型」菜单的一项：切换某种语言是否收录进符号索引，
+    /// 参数为语言序号（从 0 起）。
+    IndexLanguage(usize),
     /// 设置中「语言」菜单的一项，参数为 [`LocaleChoice::ALL`](winc_i18n::LocaleChoice::ALL)
     /// 中的序号（从 0 起）。
     Locale(usize),
@@ -770,7 +773,9 @@ impl MenuCommand {
             MenuCommand::GitHeading(false) => t!("menu-git-local-branches"),
             MenuCommand::GitHeading(true) => t!("menu-git-remote-branches"),
             MenuCommand::GitBranch(op, _) => op.label(),
-            MenuCommand::Language(i) | MenuCommand::SkipOnSave(i) => {
+            MenuCommand::Language(i)
+            | MenuCommand::SkipOnSave(i)
+            | MenuCommand::IndexLanguage(i) => {
                 winc_syntax::languages().get(i).map_or("", |l| l.name)
             }
             MenuCommand::Whitespace(i) => winc_config::RenderWhitespace::ALL
@@ -990,6 +995,8 @@ pub enum MenuTarget {
     AddLanguage(Task),
     /// 设置的格式化页中的「排除的语言」。
     SkipOnSave,
+    /// 设置的编辑器页中的「索引的文件类型」。
+    IndexLanguages,
     /// 设置的外观页中的「语言」。
     Locale,
     /// 「首次设置」中的「主题」：深色（`true`）或浅色主题的列表。

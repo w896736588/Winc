@@ -400,6 +400,9 @@ workspace-status-update-retry = Retry
 workspace-status-update-pacman = Run sudo pacman -Syu to update Winc
 workspace-status-update-scoop = Run scoop update winc to update Winc
 workspace-status-not-shown = Not shown: { $features }
+workspace-status-index-loading = Loading symbol index…
+workspace-status-index-scanning = Building symbol index…
+workspace-status-index-progress = Symbol index { $done }/{ $total }
 workspace-status-position-selected = { $position } ({ $count } selected)
 workspace-status-words =
     { $count ->

@@ -310,6 +310,7 @@ impl App {
             self.results_touched(&changes.paths);
         }
         self.git_paths_changed(&changes.paths, changes.rescan, changes.git);
+        self.symbol_index.apply(&changes);
         self.overlays.picker.index.apply(changes);
 
         self.relayout();

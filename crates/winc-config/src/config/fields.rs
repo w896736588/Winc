@@ -174,6 +174,40 @@ const EDITOR: &[Field] = &[
     bool_field!("newFileOnStartup", new_file_on_startup),
     string_field!("defaultLanguage", default_language),
     bool_field!("detectLanguageOnPaste", detect_language_on_paste),
+    Field {
+        key: "indexExclude",
+        read: |config, value, name, problems| {
+            let Some(items) = value.as_array() else {
+                problems.push(t!("config-not-array", name = name));
+                return;
+            };
+            for item in items {
+                let Some(language) = item.as_str() else {
+                    problems.push(t!("config-item-not-string", name = name));
+                    continue;
+                };
+                if let Some(id) = language_id(language, name, problems)
+                    && !config.index_exclude.contains(&id)
+                {
+                    config.index_exclude.push(id);
+                }
+            }
+        },
+        write: |config| {
+            (!config.index_exclude.is_empty()).then(|| {
+                Json::Array(
+                    config
+                        .index_exclude
+                        .iter()
+                        .cloned()
+                        .map(Json::String)
+                        .collect(),
+                )
+            })
+        },
+    },
+    bool_field!("indexIgnoreDependencies", index_ignore_dependencies),
+    bool_field!("indexIgnoreBuild", index_ignore_build),
     bool_field!("openFolderInNewWindow", open_folder_in_new_window),
     Field {
         key: "dropFolder",

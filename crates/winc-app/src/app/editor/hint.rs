@@ -28,12 +28,39 @@ pub struct NameHint {
     pub fade_in: Option<Clock>,
     /// 消失的动画；还没开始消失时为 `None`。
     pub fade_out: Option<Clock>,
+    /// 搜索进行中的进度提示：不自动淡出，由结束搜索的一方替换或清除。
+    pub progress: bool,
 }
 
 impl App {
     /// 在光标所在的名字上方弹出提示 `text`；没有打开文档时改为写在状态栏。
     pub(super) fn hint_at_name(&mut self, text: impl Into<String>) {
+        self.show_hint(text.into(), false);
+    }
+
+    /// 显示或更新搜索中的进度提示 `text`。
+    ///
+    /// 已经有同一条搜索的进度提示时只更新文字，气泡仍挂在原来的名字上，停留时间不限；
+    /// 没有时新弹一个，代替普通的提示。按键、点击收起气泡后不再弹出。
+    pub(in crate::app) fn progress_hint_at_name(&mut self, text: impl Into<String>) {
         let text = text.into();
+        let doc = self.editor.active().map(|doc| doc.id);
+        if let Some(hint) = &mut self.jumps.name_hint
+            && hint.progress
+            && hint.fade_out.is_none()
+            && Some(hint.doc) == doc
+        {
+            if hint.text != text {
+                hint.text = text;
+                self.request_redraw();
+            }
+            return;
+        }
+        self.show_hint(text, true);
+    }
+
+    /// 在光标所在的名字上方弹出提示 `text`；`progress` 为真时是搜索中的进度提示，不会自动淡出。
+    fn show_hint(&mut self, text: String, progress: bool) {
         let Some(doc) = self.editor.active() else {
             self.flash(text);
             return;
@@ -51,6 +78,7 @@ impl App {
             until: Instant::now() + HINT_DURATION,
             fade_in,
             fade_out: None,
+            progress,
         });
         self.request_redraw();
     }
@@ -75,9 +103,11 @@ impl App {
     }
 
     /// 停留时间到了就开始淡出；返回下一次需要检查的时刻。
+    ///
+    /// 搜索进行中的进度提示不按停留时间淡出，由结束搜索的一方清除。
     pub(in crate::app) fn hint_tick(&mut self, now: Instant) -> Option<Instant> {
         let hint = self.jumps.name_hint.as_ref()?;
-        if hint.fade_out.is_some() {
+        if hint.progress || hint.fade_out.is_some() {
             return None;
         }
         if now >= hint.until {

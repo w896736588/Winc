@@ -355,6 +355,7 @@ impl App {
                 language_menu(task, listed)
             }
             MenuTarget::SkipOnSave => skip_menu(&self.settings.languages.format),
+            MenuTarget::IndexLanguages => index_menu(),
             MenuTarget::Locale => locale_menu(),
             MenuTarget::NamedTheme(dark) => (0..crate::theme::themes(*dark).len())
                 .map(|i| MenuEntry::Item(MenuCommand::NamedTheme(*dark, i), true))
@@ -1177,6 +1178,9 @@ impl App {
                     .iter()
                     .any(|id| id == l.id)
             }),
+            MenuCommand::IndexLanguage(i) => winc_syntax::languages()
+                .get(i)
+                .is_some_and(|l| !self.config.index_exclude.iter().any(|id| id == l.id)),
             MenuCommand::Locale(i) => {
                 winc_i18n::LocaleChoice::ALL.get(i)
                     == Some(&self.config.language.unwrap_or_default())

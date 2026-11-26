@@ -73,6 +73,24 @@ editor-no-link = No link at the cursor
 editor-usages-not-found = No other usages of “{ $name }” found
 editor-definition-at-caret = The cursor is already at the definition of “{ $name }”
 editor-definition-not-found = No definition of “{ $name }” found
+editor-definition-searching = Looking up the definition of “{ $name }”…
+editor-definition-searching-count = Looking up the definition of “{ $name }”… { $count ->
+        [one] { $count } match found
+       *[other] { $count } matches found
+    }
+editor-usages-searching = Looking up usages of “{ $name }”…
+editor-usages-searching-count = Looking up usages of “{ $name }”… { $count ->
+        [one] { $count } match found
+       *[other] { $count } matches found
+    }
+editor-definition-filtering = Looking up the definition of “{ $name }”… checking { $count ->
+        [one] { $count } match
+       *[other] { $count } matches
+    }
+editor-usages-filtering = Looking up usages of “{ $name }”… checking { $count ->
+        [one] { $count } match
+       *[other] { $count } matches
+    }
 editor-open-folder-first = Open a folder first
 editor-places-definitions-count = { $count ->
         [one] { $count } definition
@@ -264,6 +282,10 @@ hex-goto-placeholder = 0x4E or 78
 hex-goto-total = { $size } in total
 editor-readonly-hex = The hex view is read-only
 editor-definition-in-dependencies = “{ $name }” isn’t defined in the project; searching dependencies…
+editor-definition-in-dependencies-count = “{ $name }” isn’t defined in the project; searching dependencies… { $count ->
+        [one] { $count } match found
+       *[other] { $count } matches found
+    }
 
 ## HTTP request files.
 

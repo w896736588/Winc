@@ -524,6 +524,8 @@ impl App {
             self.select(pos, pos);
             // 链接先于名字：不在链接上时转到定义。
             if !self.open_link_at_caret() {
+                // 选中点击的名字：项目搜索可能要几秒，选中状态让用户立刻看到在查找哪个名字。
+                self.select_name_at_caret();
                 self.go_to_definition();
             }
             return;

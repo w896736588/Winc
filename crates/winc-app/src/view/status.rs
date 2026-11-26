@@ -493,6 +493,35 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         &mut status_hits,
     );
 
+    // 符号索引在后台读取缓存、建立或校正时显示进度，完成后自动消失。
+    let mut items = Vec::new();
+    if let Some(status) = app.index_status() {
+        let text = match status.total {
+            0 => match status.phase {
+                winc_editor::IndexPhase::Loading => t!("workspace-status-index-loading").to_owned(),
+                _ => t!("workspace-status-index-scanning").to_owned(),
+            },
+            total => t!(
+                "workspace-status-index-progress",
+                done = status.done,
+                total = total
+            ),
+        };
+        items.push((StatusKey::Indexing, text, None));
+    }
+    draw_group(
+        frame,
+        app,
+        &mut motion,
+        animate,
+        &[StatusKey::Indexing],
+        items,
+        1.0,
+        bar,
+        &mut right,
+        &mut status_hits,
+    );
+
     // 图片、SVG 预览：依次显示图片大小（像素）、文件大小、格式，以及 SVG 中未能绘制的特性。
     // 切换源代码与预览的按钮在标签栏右端（`Layout::preview`）。
     let mut items = Vec::new();

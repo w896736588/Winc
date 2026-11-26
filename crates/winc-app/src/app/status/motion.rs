@@ -52,6 +52,8 @@ pub enum StatusKey {
     Language,
     /// 新版本提示。
     Update,
+    /// 符号索引的加载、建立进度。
+    Indexing,
 }
 
 /// 一项在本帧应显示的内容；`K` 是项的标识，状态栏用 [`StatusKey`]。
@@ -349,6 +351,11 @@ impl App {
             return true;
         }
         self.clock(STATUS_SLIDE).is_some()
+    }
+
+    /// 符号索引后台任务的进度；没有任务在跑时为 `None`。状态栏据此显示索引进度。
+    pub(crate) fn index_status(&self) -> Option<winc_editor::IndexStatus> {
+        self.symbol_index.status()
     }
 }
 

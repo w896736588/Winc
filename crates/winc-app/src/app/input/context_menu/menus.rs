@@ -937,6 +937,18 @@ pub fn skip_menu(listed: &[&str]) -> Vec<MenuEntry> {
         .collect()
 }
 
+/// 返回「索引的文件类型」菜单的菜单项：会进入索引的语言，收录的打勾（默认全部收录）。
+///
+/// 点击一项即切换该语言是否收录，菜单随即关闭。
+pub fn index_menu() -> Vec<MenuEntry> {
+    winc_syntax::languages()
+        .iter()
+        .enumerate()
+        .filter(|(_, language)| winc_editor::indexable_language(language.id))
+        .map(|(i, _)| MenuEntry::Item(MenuCommand::IndexLanguage(i), true))
+        .collect()
+}
+
 /// 返回一种语言的格式化（修复）工具菜单的菜单项：自动、该语言的预设、自定义命令。
 ///
 /// 没有可自动使用的预设（没有预设，或预设都不自动使用）时不列出「自动」，选了也不会生效。

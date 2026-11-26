@@ -166,6 +166,14 @@ impl SettingsPage {
                     vec![S::DefaultLanguage, S::DetectLanguageOnPaste],
                 ),
                 group(
+                    t!("settings-group-index"),
+                    vec![
+                        S::IndexLanguages,
+                        S::IndexIgnoreDependencies,
+                        S::IndexIgnoreBuild,
+                    ],
+                ),
+                group(
                     t!("settings-group-vim"),
                     vec![
                         S::VimMode,

@@ -792,6 +792,16 @@ impl App {
             earliest(&mut wake, Some(now + GLOBAL_POLL));
         }
 
+        // 符号索引在后台读取缓存、建立或校正时按固定间隔重绘，状态栏右侧的进度随之更新；
+        // 完成后不再唤醒。
+        if self.index_status().is_some() {
+            self.request_redraw();
+            earliest(
+                &mut wake,
+                Some(now + winc_editor::SymbolIndex::PROGRESS_POLL),
+            );
+        }
+
         // 全局搜索的条件变化后，延迟 `SEARCH_DELAY` 到达 `global.due` 再开始搜索，合并连续的输入。
         if let Some(due) = self.panels.global.due {
             if now >= due {

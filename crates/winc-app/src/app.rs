@@ -1031,6 +1031,8 @@ pub struct App {
     // 侧栏和文件树
     /// 跳转：位置历史、后台的定义查找和名字旁的提示。
     pub(crate) jumps: editor::Jumps,
+    /// 工作区符号索引：转到定义先查它，避免每次都遍历目录、逐个读取文件。
+    pub(in crate::app) symbol_index: winc_editor::SymbolIndex,
     /// 覆盖在界面之上的浮层：右键菜单、快速打开、对话框、提示框和悬停提示。
     pub(crate) overlays: input::Overlays,
     /// 编辑区水平滚动条的内容宽度（逻辑像素），绘制时更新；没有水平滚动条时为 0。

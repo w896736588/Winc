@@ -164,6 +164,7 @@ impl App {
                 navigation: Default::default(),
                 definitions: None,
             },
+            symbol_index: Default::default(),
             overlays: crate::app::input::Overlays {
                 form_dialog: None,
                 alert: None,

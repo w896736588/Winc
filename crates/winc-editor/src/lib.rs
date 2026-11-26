@@ -54,6 +54,9 @@ pub use workspace::project_search::{
     FileResult, LineMatch, MAX_RESULTS, MAX_THREADS as MAX_SEARCH_THREADS, ProjectSearch, Query,
     ReplacePreview, replace_in_document, replace_in_file,
 };
+pub use workspace::symbol_index::{
+    IndexOptions, IndexPhase, IndexStatus, SymbolIndex, SymbolPlace, indexable_language,
+};
 pub use workspace::tree::{
     DirEntry, DirFetch, DirFetched, DirListing, DirScan, EXPAND_DIRS, Entry, EntryKind, Expansion,
     Workspace, copy_entry, create_at, list_dir, move_at, natural_cmp, rename_at, segment_name,

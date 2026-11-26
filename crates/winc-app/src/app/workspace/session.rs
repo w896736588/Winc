@@ -384,6 +384,7 @@ impl App {
         self.git.commit.forget_dirs();
         self.overlays.picker.index.cancel();
         self.overlays.picker.index = FileIndex::default();
+        self.symbol_index.clear();
         self.jumps.definitions = None;
         if self.overlays.picker.open {
             self.close_picker();

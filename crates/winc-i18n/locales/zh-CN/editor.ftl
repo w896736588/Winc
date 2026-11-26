@@ -67,6 +67,12 @@ editor-no-link = 光标处无链接
 editor-usages-not-found = 未找到「{ $name }」的其他用法
 editor-definition-at-caret = 光标处即为「{ $name }」的定义
 editor-definition-not-found = 未找到「{ $name }」的定义
+editor-definition-searching = 正在查找「{ $name }」的定义…
+editor-definition-searching-count = 正在查找「{ $name }」的定义…已找到 { $count } 处匹配
+editor-usages-searching = 正在查找「{ $name }」的用法…
+editor-usages-searching-count = 正在查找「{ $name }」的用法…已找到 { $count } 处匹配
+editor-definition-filtering = 正在查找「{ $name }」的定义…正在核对 { $count } 处匹配
+editor-usages-filtering = 正在查找「{ $name }」的用法…正在核对 { $count } 处匹配
 editor-open-folder-first = 请先打开一个目录
 editor-places-definitions-count = { $count } 处定义
 editor-places-usages-count = { $count } 个用法
@@ -234,6 +240,7 @@ hex-goto-placeholder = 0x4E 或 78
 hex-goto-total = 共 { $size }
 editor-readonly-hex = 十六进制视图只能查看
 editor-definition-in-dependencies = 项目中没有「{ $name }」的定义，正在依赖目录中查找…
+editor-definition-in-dependencies-count = 项目中没有「{ $name }」的定义，正在依赖目录中查找…已找到 { $count } 处匹配
 
 ## HTTP 请求文件。
 

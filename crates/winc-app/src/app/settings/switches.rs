@@ -14,6 +14,10 @@ impl App {
             Setting::RestoreFolder => self.config.restore_folder != Some(false),
             Setting::NewFileOnStartup => self.config.new_file_on_startup == Some(true),
             Setting::DetectLanguageOnPaste => self.config.detect_language_on_paste != Some(false),
+            Setting::IndexIgnoreDependencies => {
+                self.config.index_ignore_dependencies != Some(false)
+            }
+            Setting::IndexIgnoreBuild => self.config.index_ignore_build != Some(false),
             Setting::DragAndDrop => self.config.drag_and_drop != Some(false),
             Setting::StickyScroll => self.config.sticky_scroll != Some(false),
             Setting::VimMode => self.config.vim_enabled == Some(true),
@@ -91,6 +95,8 @@ impl App {
             Setting::RestoreFolder => self.config.restore_folder = Some(on),
             Setting::NewFileOnStartup => self.config.new_file_on_startup = Some(on),
             Setting::DetectLanguageOnPaste => self.config.detect_language_on_paste = Some(on),
+            Setting::IndexIgnoreDependencies => self.config.index_ignore_dependencies = Some(on),
+            Setting::IndexIgnoreBuild => self.config.index_ignore_build = Some(on),
             Setting::DragAndDrop => self.config.drag_and_drop = Some(on),
             Setting::StickyScroll => self.config.sticky_scroll = Some(on),
             Setting::VimMode => {
@@ -222,6 +228,27 @@ impl App {
             }
             self.reload_run_configs();
         }
+        if matches!(
+            setting,
+            Setting::IndexIgnoreDependencies | Setting::IndexIgnoreBuild
+        ) {
+            self.refresh_symbol_index();
+        }
+        self.save_config();
+        self.request_redraw();
+    }
+
+    /// 处理「索引的文件类型」菜单中对语言 `id` 的点击：已排除的恢复索引，未排除的加入排除，
+    /// 并在后台按新选项重新建立索引。
+    pub(in crate::app) fn settings_toggle_index_language(&mut self, id: &str) {
+        let excluded = &mut self.config.index_exclude;
+        match excluded.iter().position(|language| language == id) {
+            Some(i) => {
+                excluded.remove(i);
+            }
+            None => excluded.push(id.to_owned()),
+        }
+        self.refresh_symbol_index();
         self.save_config();
         self.request_redraw();
     }

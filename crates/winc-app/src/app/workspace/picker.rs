@@ -429,14 +429,16 @@ impl App {
         !self.overlays.picker.index.is_ready() && self.overlays.picker.index.quick_open_len() == 0
     }
 
-    /// 打开目录之后，在后台建立 `⌘P` 面板的文件表，使第一次按 `⌘P` 时即可列出文件。
+    /// 打开目录之后，在后台建立 `⌘P` 面板的文件表和符号索引，使第一次按 `⌘P`、第一次
+    /// Ctrl+点击时即可直接用上。
     ///
-    /// 目录处于监视状态时，文件表建好后随变化增量更新，不需要重新遍历。建表耗时：大目录约
+    /// 目录处于监视状态时，两者建好后随变化增量更新，不需要重新遍历。建表耗时：大目录约
     /// 1 至 2 秒，整个主目录约 3 秒以上。基准测试模式和没有事件循环时不建立，
     /// 避免干扰启动耗时和内存的测量。
     pub(super) fn index_folder(&mut self) {
         if !self.frame.bench.silent() && self.link.proxy.is_some() {
             self.prepare_index();
+            self.index_symbols();
         }
     }
 
@@ -646,6 +648,11 @@ impl App {
     ///
     /// 文件表在后台只更新这几项，不等待目录监视的通知，也不重新遍历整个目录。
     pub(in crate::app) fn picker_touched(&mut self, paths: Vec<PathBuf>) {
+        self.symbol_index.apply(&winc_editor::Changes {
+            paths: paths.clone(),
+            rescan: false,
+            git: false,
+        });
         self.overlays.picker.index.apply(winc_editor::Changes {
             paths,
             rescan: false,

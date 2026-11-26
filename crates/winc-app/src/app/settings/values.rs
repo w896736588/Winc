@@ -5,7 +5,12 @@ use super::*;
 impl App {
     /// 返回点击后弹出菜单的设置项 `setting` 显示的文字，以及是否写成淡色（没有选择时）。
     pub(crate) fn choice_text(&self, setting: Setting) -> (String, bool) {
-        if setting == Setting::Language {
+        if setting == Setting::IndexLanguages {
+            match self.index_excluded_names() {
+                Some(names) => (names, false),
+                None => (t!("settings-index-languages-all").to_owned(), false),
+            }
+        } else if setting == Setting::Language {
             let choice = self.config.language.unwrap_or_default();
             (crate::layout::locale_label(choice).to_owned(), false)
         } else if setting == Setting::RenderWhitespace {
@@ -83,6 +88,18 @@ impl App {
             let none = || t!("settings-skip-on-save-none").to_owned();
             (self.skipped_on_save().unwrap_or_else(none), false)
         }
+    }
+
+    /// 返回「索引的文件类型」右侧显示的文字：不索引的语言名称，以「、」分隔。
+    ///
+    /// 全部收录时返回 `None`。
+    fn index_excluded_names(&self) -> Option<String> {
+        let names: Vec<&str> = winc_syntax::languages()
+            .iter()
+            .filter(|language| self.config.index_exclude.iter().any(|id| id == language.id))
+            .map(|language| language.name)
+            .collect();
+        (!names.is_empty()).then(|| names.join(t!("settings-list-separator")))
     }
 
     /// `setting` 是否写在配置文件里；没有对应配置项的为否。

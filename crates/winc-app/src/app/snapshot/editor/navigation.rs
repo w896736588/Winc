@@ -135,6 +135,60 @@ fn go_to_definition_tries_this_file_then_the_project() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 命中符号索引时直接跳转，不再遍历目录、逐个读取文件。
+#[test]
+fn go_to_definition_uses_the_symbol_index() {
+    let dir = navigation_folder("symbol-index");
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("main.py"));
+    app.symbol_index = winc_editor::SymbolIndex::collect_now(&dir, &[]);
+
+    caret_on(&mut app, "helper", 1);
+    app.go_to_definition();
+    assert_eq!(active_name(&app), "util.py");
+    assert_eq!(selected_text(&app), "helper");
+    assert!(app.jumps.definitions.is_none(), "命中索引时不再全文查找");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 搜索中的进度提示不会按停留时间消失，更新文字时仍挂在原来的名字上。
+#[test]
+fn progress_hints_stay_until_the_search_ends() {
+    let dir = navigation_folder("progress-hint");
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("main.py"));
+    caret_on(&mut app, "run", 0);
+
+    app.progress_hint_at_name("正在查找「run」的定义…");
+    let hint = app.jumps.name_hint.as_ref().unwrap();
+    let anchor = hint.anchor;
+    assert!(hint.progress);
+    let now = std::time::Instant::now();
+    assert!(
+        app.hint_tick(now + std::time::Duration::from_secs(10))
+            .is_none()
+    );
+    assert!(app.jumps.name_hint.is_some());
+
+    app.progress_hint_at_name("正在查找「run」的定义…已找到 2 处匹配");
+    let hint = app.jumps.name_hint.as_ref().unwrap();
+    assert_eq!(hint.text, "正在查找「run」的定义…已找到 2 处匹配");
+    assert_eq!(hint.anchor, anchor, "更新文字时气泡不移动");
+
+    // 搜索结束后进度提示换回普通提示（结束搜索的一方会替换或清除它）；改回普通提示后，
+    // 停留时间到了仍然自动消失。
+    app.jumps.name_hint.as_mut().unwrap().progress = false;
+    let now = std::time::Instant::now();
+    assert!(
+        app.hint_tick(now + std::time::Duration::from_secs(10))
+            .is_none()
+    );
+    assert!(app.jumps.name_hint.is_none());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 转到定义和查找用法一并搜索附加的目录，其中的文件和快速打开一样以目录名开头。
 #[test]
 fn definitions_and_usages_reach_added_folders() {
@@ -1296,5 +1350,37 @@ fn a_member_call_goes_to_the_receiver_type_not_the_same_name_here() {
         ]
     );
     app.close_picker();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 返回第 `line` 行第 `col` 列（均从 0 起）的窗口坐标：该格的左边缘、行的垂直中心。
+fn point(app: &App, line: usize, col: usize) -> (f32, f32) {
+    let t = app.layout.text;
+    let doc = app.editor.active().unwrap();
+    (
+        t.x + TEXT_PAD - doc.scroll_x + col as f32 * app.metrics.cell,
+        t.y + ((line as f64 - doc.scroll_line) as f32 + 0.5) * app.fonts.line_height,
+    )
+}
+
+/// `⌘`/`Ctrl` 单击名字：搜索开始前先选中它，点击处立刻有可见的底色；搜索完没有定义时选区仍留着。
+#[test]
+fn command_click_selects_the_name_before_searching() {
+    let dir = winc_config::files::canonicalize(sample_folder("definition-click")).unwrap();
+    let file = dir.join("main.py");
+    std::fs::write(&file, "def run():\n    missing()\n").unwrap();
+    let mut app = app_with(&dir, false);
+    app.open_path(&file);
+    app.focus = Focus::Editor;
+    paint(&mut app);
+
+    app.pointer.modifiers = command_modifiers();
+    let at = point(&app, 1, 7);
+    click(&mut app, at);
+    assert_eq!(selected_text(&app), "missing");
+    assert_eq!(
+        app.jumps.name_hint.as_ref().map(|h| h.text.as_str()),
+        Some("未找到「missing」的定义")
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

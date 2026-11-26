@@ -30,6 +30,14 @@ pub const HIDDEN: &[&str] = &[
 /// 在版本库内时 `.gitignore` 只到版本库的根目录为止，与 Git 相同，上级目录的规则不影响版本库。
 /// 不在版本库内时 `.gitignore` 同样生效：下载的源码包也不会列出 `node_modules` 这类目录。
 pub fn walker(dir: &Path) -> WalkBuilder {
+    walker_skipping(dir, &[])
+}
+
+/// 同 [`walker`]，并跳过名字在 `skip` 中的目录（如 `node_modules`、`dist`）。
+///
+/// 供符号索引使用：不读依赖目录和构建输出目录。
+pub fn walker_skipping(dir: &Path, skip: &[&str]) -> WalkBuilder {
+    let skip: HashSet<String> = skip.iter().map(|name| (*name).to_owned()).collect();
     let mut builder = WalkBuilder::new(dir);
     // `hidden(false)` 关闭 `ignore` 对以 `.` 开头的名字的过滤：`.github`、`.editorconfig`
     // 仍然收录，只有 [`HIDDEN`] 中的名字由 `filter_entry` 跳过。
@@ -42,7 +50,11 @@ pub fn walker(dir: &Path) -> WalkBuilder {
         .git_exclude(true)
         .require_git(in_repository(dir))
         .follow_links(false)
-        .filter_entry(|entry| !HIDDEN.contains(&entry.file_name().to_string_lossy().as_ref()));
+        .filter_entry(move |entry| {
+            let name = entry.file_name().to_string_lossy();
+            let name: &str = &name;
+            !HIDDEN.contains(&name) && !skip.contains(name)
+        });
     builder
 }
 

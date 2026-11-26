@@ -1162,7 +1162,7 @@ pub fn list_dir(dir: &Path) -> io::Result<Vec<DirEntry>> {
 mod folders;
 pub(crate) use folders::{folder_prefixes, labelled_path};
 pub use winc_search::natural_cmp;
-pub(crate) use winc_search::{HIDDEN, is_listed_file, walker};
+pub(crate) use winc_search::{HIDDEN, is_listed_file, walker, walker_skipping};
 mod fetch;
 pub use fetch::{DirFetch, DirFetched, Expansion};
 mod scan;

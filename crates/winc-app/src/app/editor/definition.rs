@@ -1,9 +1,10 @@
 //! 转到定义（`F12`、`⌘` 单击、右键菜单）和查找引用（`⇧F12`）。
 //!
-//! 不使用语言服务：定义按常见的声明写法在文本中查找（见 `winc_editor::definition`），先查当前文件，
-//! 没有再在后台搜索整个项目；查找引用是全字匹配、区分大小写的全局搜索。光标原本就在定义上时，
-//! 转到定义改为列出该名字的用法：局部变量只在当前文件中找，其余在项目中全字搜索后，再在后台
-//! 按词法分析剔除注释、字符串、无关语言和其他同名定义中的命中（见 `winc_editor::usages`）。
+//! 不使用语言服务：定义按常见的声明写法在文本中查找（见 `winc_editor::definition`），先查当前文件；
+//! 项目中的定义先查工作区符号索引（见 `winc_editor::SymbolIndex`，在第一次需要时于后台建立），
+//! 没有收录这个名字时再在后台搜索整个项目；查找引用是全字匹配、区分大小写的全局搜索。光标原本就在
+//! 定义上时，转到定义改为列出该名字的用法：局部变量只在当前文件中找，其余在项目中全字搜索后，再在
+//! 后台按词法分析剔除注释、字符串、无关语言和其他同名定义中的命中（见 `winc_editor::usages`）。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
@@ -112,8 +113,11 @@ impl Places {
     }
 }
 
-/// 在依赖目录里找定义时，超过该时长还没找完才提示正在查找，与其他「正在读取」的提示相同。
-const DEPENDENCY_HINT_DELAY: Duration = Duration::from_millis(300);
+/// 搜索开始后超过该时长还没结果，就在名字旁提示正在查找，与其他「正在读取」的提示相同。
+const SEARCH_HINT_DELAY: Duration = Duration::from_millis(300);
+
+/// 搜索进行中更新进度提示（已经找到的匹配数、正在核对的匹配数）的间隔。
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
 
 /// 正在后台搜索整个项目的定义或用法。
 ///
@@ -148,10 +152,12 @@ pub struct DefinitionSearch {
     scope: Option<(PathBuf, Query)>,
     /// 是否已经在依赖目录里找过（见 [`App::search_dependencies`]）。
     in_dependencies: bool,
-    /// 在依赖目录里找到这一刻还没找完时，提示正在查找；提示过以后为 `None`。
-    hint_due: Option<Instant>,
-    /// 是否提示过正在依赖目录中查找：找完时收起这条提示。
+    /// 下一次更新进度提示的时刻；不再提示时为 `None`。
+    next_tick: Option<Instant>,
+    /// 是否已经显示过进度提示：搜索结束时收起这条提示。
     hinted: bool,
+    /// 第二阶段要核对的匹配数，用于进度提示。
+    candidates: usize,
     /// 发起查找时的文档和光标位置（由 `start_place_search` 填入）。
     ///
     /// 搜索结束时用户已经换了标签或挪了光标，就不再弹浮窗、提示或跳转：
@@ -199,12 +205,30 @@ impl App {
         }
     }
 
+    /// 选中光标所在的名字，用在开始搜索之前给出即时反馈；光标处不是名字时不动选区。
+    ///
+    /// 项目搜索可能要几秒，选中状态让用户立刻看到在查找哪个名字，结束后再跳转或列出候选。
+    pub(in crate::app) fn select_name_at_caret(&mut self) {
+        let Some((from, to)) = self.name_span() else {
+            return;
+        };
+        let named = self
+            .editor
+            .active()
+            .and_then(|doc| doc.text_range(from, to).map(|word| (doc, word)))
+            .is_some_and(|(doc, word)| doc.highlighter.language().is_name(&word));
+        if named {
+            self.select(from, to);
+        }
+    }
+
     /// 转到光标所在名字的定义（`F12`、`⌘` 单击）。
     ///
     /// 当前文件内有定义时，跳到离光标最近的一处：优先取光标之前（含同一行）最近的一处，光标之前没有
-    /// 时取第一处；没有定义时在项目中后台搜索，只有一处就直接跳转，有多处则列出供选择。光标原本就在
-    /// 定义上时改为列出用法：局部变量只在当前文件中找（见 [`Self::show_local_usages`]），其余在项目
-    /// 中找（见 [`Self::show_usages`]）；重新赋值（之前已有同名的定义）时不算在定义上。
+    /// 时取第一处；没有定义时先查工作区符号索引，索引没有收录这个名字时在项目中后台搜索，只有一处就
+    /// 直接跳转，有多处则列出供选择。光标原本就在定义上时改为列出用法：局部变量只在当前文件中找
+    /// （见 [`Self::show_local_usages`]），其余在项目中找（见 [`Self::show_usages`]）；重新赋值
+    /// （之前已有同名的定义）时不算在定义上。
     pub(in crate::app) fn go_to_definition(&mut self) {
         let Some(name) = self.name_at_caret() else {
             return;
@@ -288,6 +312,31 @@ impl App {
         let Some(root) = root else {
             return self.no_definition(&name, !here.is_empty());
         };
+        // 先查工作区符号索引：命中时不必遍历目录、逐个读取文件。索引在第一次点击时于后台建立，
+        // 还没建好或没有收录这个名字（非代码文件、过大的文件）时退回全文查找。
+        self.ensure_symbol_index(&root);
+        if !ignore_case
+            && let Some(found) = self.symbol_index.lookup(&name)
+            && !found.is_empty()
+        {
+            let from = path.clone().unwrap_or_default();
+            let dir = from.parent().unwrap_or(Path::new("/")).to_path_buf();
+            let mut items = self.symbol_places(found, &name);
+            arrange_definitions(&mut items, &from, language, &dir, &receiver, &filter);
+            match items.len() {
+                1 => {
+                    self.open_place(&items[0], &name);
+                    return;
+                }
+                n if n > 1 => {
+                    self.show_places(PlacesKind::Definitions, name, items);
+                    self.request_redraw();
+                    return;
+                }
+                // 索引中的位置都已失效（文件刚被删改）：退回全文查找。
+                _ => {}
+            }
+        }
         let query = definition::query(&name, ignore_case);
         let search = DefinitionSearch {
             engine: ProjectSearch::default(),
@@ -302,8 +351,9 @@ impl App {
             origin: None,
             scope: None,
             in_dependencies: false,
-            hint_due: None,
+            next_tick: Some(Instant::now() + SEARCH_HINT_DELAY),
             hinted: false,
+            candidates: 0,
         };
         self.start_place_search(search, &root, &query);
     }
@@ -361,6 +411,110 @@ impl App {
         }
     }
 
+    /// 确保符号索引已为当前工作区建立；第一次调用时先在后台读取缓存，再校正变化的文件。
+    ///
+    /// 设置中的「符号索引」一组改变后再次调用，索引按新选项重新建立。
+    fn ensure_symbol_index(&mut self, root: &Path) {
+        // 没有事件循环（测试）时不建立：结果要等后台，测试中直接走同步的全文查找。
+        if self.link.proxy.is_none() {
+            return;
+        }
+        let extra = self.extra_folders();
+        let options = self.symbol_options();
+        self.symbol_index
+            .ensure(root, &extra, options, Self::symbol_cache_dir());
+    }
+
+    /// 为当前工作区在后台建立（或从缓存读出并校正）符号索引；打开目录时调用。
+    ///
+    /// 进度显示在状态栏右侧，见 [`crate::view::status`]。
+    pub(in crate::app) fn index_symbols(&mut self) {
+        if self.link.proxy.is_none() {
+            return;
+        }
+        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+            return;
+        };
+        self.ensure_symbol_index(&root);
+    }
+
+    /// 按设置中的「符号索引」一组重新建立当前工作区的索引；没有打开目录时不处理。
+    pub(in crate::app) fn refresh_symbol_index(&mut self) {
+        self.index_symbols();
+    }
+
+    /// 设置中「符号索引」一组对应的索引选项。
+    fn symbol_options(&self) -> winc_editor::IndexOptions {
+        winc_editor::IndexOptions {
+            exclude: self.config.index_exclude.clone(),
+            skip_dependencies: self.config.index_ignore_dependencies != Some(false),
+            skip_build: self.config.index_ignore_build != Some(false),
+        }
+    }
+
+    /// 缓存符号索引的目录：状态文件所在目录下的 `symbol-index`；确定不了时不用缓存。
+    fn symbol_cache_dir() -> Option<PathBuf> {
+        let state = winc_config::state_path()?;
+        Some(state.parent()?.join("symbol-index"))
+    }
+
+    /// 把符号索引中的位置整理成浮窗条目：读入各行的内容作为预览。
+    ///
+    /// 索引不保存行内容；列出的结果通常只有几处，这几个文件读一遍的开销可以忽略。已经打开的
+    /// 文件按内存中的内容取（可能有未保存的修改）。
+    fn symbol_places(&self, found: Vec<winc_editor::SymbolPlace>, name: &str) -> Vec<Place> {
+        let mut texts: HashMap<PathBuf, Option<Rope>> = HashMap::new();
+        let len = name.chars().count();
+        let mut items = Vec::with_capacity(found.len());
+        for place in found {
+            let text = texts
+                .entry(place.path.clone())
+                .or_insert_with(|| self.file_rope(&place.path));
+            let Some(text) = text else {
+                continue;
+            };
+            let line = place.line.min(text.line_count().saturating_sub(1));
+            let content: String = text
+                .line(line)
+                .chars()
+                .filter(|&c| c != '\n' && c != '\r')
+                .collect();
+            let indent = content.chars().take_while(|c| c.is_whitespace()).count();
+            let preview: String = content.chars().skip(indent).collect();
+            let marks = preview
+                .find(name)
+                .map(|at| preview[..at].chars().count())
+                .map(|start| std::iter::once(start..start + len).collect::<Vec<_>>())
+                .unwrap_or_default();
+            items.push(Place {
+                path: place.path,
+                relative: place.relative,
+                line: place.line,
+                // 名字不在这一行（文件刚被改过）时，打开后按定义的写法在该行里重新找。
+                col: (!marks.is_empty()).then_some(place.col),
+                preview,
+                marks,
+            });
+        }
+        items
+    }
+
+    /// 返回文件的内容：已经打开的文档按内存中的内容，其余从磁盘读取并识别编码。
+    fn file_rope(&self, path: &Path) -> Option<Rope> {
+        if let Some(doc) = self
+            .editor
+            .documents
+            .iter()
+            .find(|doc| doc.path.as_deref() == Some(path))
+        {
+            return doc.text().rope().cloned();
+        }
+        let bytes = winc_backend::fs::read(path).ok()?;
+        Some(Rope::from_str(
+            &winc_editor::encoding::decode_unknown(&bytes).0,
+        ))
+    }
+
     /// 在项目中后台查找光标所在的名字 `name` 的用法（全字匹配、区分大小写），`line` 是光标所在
     /// 的行，即定义所在的行，结果中排除。
     ///
@@ -392,8 +546,9 @@ impl App {
             origin: None,
             scope: None,
             in_dependencies: false,
-            hint_due: None,
+            next_tick: Some(Instant::now() + SEARCH_HINT_DELAY),
             hinted: false,
+            candidates: 0,
         };
         self.start_place_search(search, &root, &query);
     }
@@ -456,6 +611,12 @@ impl App {
             let dirty: HashMap<PathBuf, Rope> = self.dirty_ropes().into_iter().collect();
             let filter = Arc::clone(&search.filter);
             let usages = search.usages_of.is_some();
+            // 没有命中时无需再逐个文件读取、做词法分析。
+            if results.is_empty() {
+                self.finish_place_search(search);
+                return;
+            }
+            search.candidates = results.iter().map(|file| file.matches.len()).sum();
             match self.link.proxy.clone() {
                 None => search.engine.results = filter_results(&filter, usages, results, &dirty),
                 Some(proxy) => {
@@ -477,6 +638,10 @@ impl App {
     fn finish_place_search(&mut self, search: DefinitionSearch) {
         let here = self.editor.active().map(|d| (d.id, d.selection.head));
         if here != search.origin {
+            // 搜索期间用户换了标签或挪了光标，结果已经用不上；一并收起仍在显示的进度提示。
+            if search.hinted {
+                self.jumps.name_hint = None;
+            }
             return;
         }
 
@@ -519,33 +684,14 @@ impl App {
             });
             merge_lines(&mut items);
         } else {
-            // 有相关语言中的定义时，只列这些；其他语言中的同名定义（文档、数据文件）通常无关。
-            if items.iter().any(|p| search.filter.is_related(&p.path)) {
-                items.retain(|p| search.filter.is_related(&p.path));
-            }
-            let exact = |p: &Place, type_name: &str| definition::named_after(&p.path, type_name);
-            let type_name = search.receiver.as_ref().map(|(name, _)| name.as_str());
-            if let Some(name) = type_name
-                && items.iter().any(|p| exact(p, name).is_some())
-            {
-                items.retain(|p| exact(p, name).is_some());
-            } else if let Some((_, Some(local))) = &search.receiver {
-                // 没有以接收者类型命名的文件时类型推断可能有误，一并列出当前文件中的定义。
-                items.push(local.clone());
-            }
-            items.sort_by(|a, b| {
-                let key = |p: &Place| {
-                    let named = type_name.and_then(|name| exact(p, name)) != Some(true);
-                    (
-                        named,
-                        p.path != *from,
-                        definition::rank(&p.path, search.language, &dir),
-                    )
-                };
-                key(a)
-                    .cmp(&key(b))
-                    .then_with(|| a.relative.cmp(&b.relative))
-            });
+            arrange_definitions(
+                &mut items,
+                from,
+                search.language,
+                &dir,
+                &search.receiver,
+                &search.filter,
+            );
         }
 
         // 正在查找的提示到此为止。
@@ -566,32 +712,57 @@ impl App {
     }
 
     /// 项目里没有找到定义：到依赖目录（`node_modules`、`.venv` 等，通常被 `.gitignore` 忽略）
-    /// 里再找一遍；找了 [`DEPENDENCY_HINT_DELAY`] 还没找完时在名字旁提示正在查找。
+    /// 里再找一遍；找了 [`SEARCH_HINT_DELAY`] 还没找完时在名字旁提示正在查找。
     fn search_dependencies(&mut self, mut search: DefinitionSearch) {
         let Some((root, query)) = search.scope.take() else {
             return self.no_definition(&search.name, search.at_caret);
         };
-        search.hint_due = Some(Instant::now() + DEPENDENCY_HINT_DELAY);
+        search.next_tick = Some(Instant::now() + SEARCH_HINT_DELAY);
+        search.hinted = false;
         search.in_dependencies = true;
         search.filtering = None;
+        search.candidates = 0;
         search.engine.results.clear();
         self.start_place_search(search, &root, &query);
     }
 
-    /// 在依赖目录里找定义找到现在还没找完：在名字旁提示一次正在查找；返回下次要检查的时刻。
+    /// 更新名字旁的搜索进度：显示阶段（查找、核对、依赖目录）和已经找到的匹配数；
+    /// 返回下一次更新的时刻。
+    ///
+    /// 第一次在 [`SEARCH_HINT_DELAY`] 之后显示，此后每隔 [`PROGRESS_INTERVAL`] 刷新，
+    /// 直到搜索结束或用户按键、点击收起了气泡。搜索期间换到别的标签后不再提示。
     pub(in crate::app) fn definition_tick(&mut self, now: Instant) -> Option<Instant> {
-        let search = self.jumps.definitions.as_mut()?;
-        let due = search.hint_due?;
-        if now < due {
-            return Some(due);
+        let (first, text, next) = {
+            let search = self.jumps.definitions.as_mut()?;
+            let due = search.next_tick?;
+            if now < due {
+                return Some(due);
+            }
+            // 结果只对发起查找的那个标签有意义，换到别的标签后不再提示。
+            if self.editor.active().map(|doc| doc.id) != search.origin.map(|(id, _)| id) {
+                return None;
+            }
+            let first = !search.hinted;
+            search.hinted = true;
+            let next = now + PROGRESS_INTERVAL;
+            search.next_tick = Some(next);
+            (first, progress_text(search), next)
+        };
+        let shown = self
+            .jumps
+            .name_hint
+            .as_ref()
+            .is_some_and(|hint| hint.progress && hint.fade_out.is_none());
+        if first || shown {
+            self.progress_hint_at_name(text);
+            Some(next)
+        } else {
+            // 用户按键、点击后气泡已经收起：不再弹出，也不必继续按间隔更新。
+            if let Some(search) = &mut self.jumps.definitions {
+                search.next_tick = None;
+            }
+            None
         }
-        (search.hint_due, search.hinted) = (None, true);
-        let name = search.name.clone();
-        self.hint_at_name(t!(
-            "editor-definition-in-dependencies",
-            name = name.as_str()
-        ));
-        None
     }
 
     /// 在状态栏提示没有找到 `name` 的定义。
@@ -735,6 +906,83 @@ impl App {
         self.focus = Focus::Results;
         self.relayout();
         self.request_redraw();
+    }
+}
+
+/// 整理找到的定义：有相关语言中的定义时只留这些；有接收者类型时优先以该类型命名的文件，没有
+/// 时补上当前文件中的同名定义（类型推断可能有误）；按相关语言、同一目录和文件名排序。
+fn arrange_definitions(
+    items: &mut Vec<Place>,
+    from: &Path,
+    language: &'static Language,
+    dir: &Path,
+    receiver: &Option<(String, Option<Place>)>,
+    filter: &Filter,
+) {
+    // 其他语言中的同名定义（文档、数据文件）通常无关。
+    if items.iter().any(|place| filter.is_related(&place.path)) {
+        items.retain(|place| filter.is_related(&place.path));
+    }
+    let exact = |place: &Place, type_name: &str| definition::named_after(&place.path, type_name);
+    let type_name = receiver.as_ref().map(|(name, _)| name.as_str());
+    if let Some(name) = type_name
+        && items.iter().any(|place| exact(place, name).is_some())
+    {
+        items.retain(|place| exact(place, name).is_some());
+    } else if let Some((_, Some(local))) = receiver {
+        items.push(local.clone());
+    }
+    items.sort_by(|a, b| {
+        let key = |place: &Place| {
+            let named = type_name.and_then(|name| exact(place, name)) != Some(true);
+            (
+                named,
+                place.path != *from,
+                definition::rank(&place.path, language, dir),
+            )
+        };
+        key(a)
+            .cmp(&key(b))
+            .then_with(|| a.relative.cmp(&b.relative))
+    });
+}
+
+/// 返回搜索进度提示的文字：阶段（查找、核对、依赖目录）和已经找到的匹配数。
+///
+/// 还没有命中时只写正在查找；第二阶段（逐个文件核对）显示要核对的匹配数。
+fn progress_text(search: &DefinitionSearch) -> String {
+    let name = search.name.as_str();
+    let count = match search.filtering.is_some() {
+        true => search.candidates,
+        false => search.engine.total(),
+    };
+    match count {
+        0 if search.usages_of.is_some() => t!("editor-usages-searching", name = name),
+        0 if search.in_dependencies => {
+            t!("editor-definition-in-dependencies", name = name)
+        }
+        0 => t!("editor-definition-searching", name = name),
+        _ if search.filtering.is_some() && search.usages_of.is_some() => {
+            t!("editor-usages-filtering", name = name, count = count)
+        }
+        _ if search.filtering.is_some() => {
+            t!("editor-definition-filtering", name = name, count = count)
+        }
+        _ if search.in_dependencies => {
+            t!(
+                "editor-definition-in-dependencies-count",
+                name = name,
+                count = count
+            )
+        }
+        _ if search.usages_of.is_some() => {
+            t!("editor-usages-searching-count", name = name, count = count)
+        }
+        _ => t!(
+            "editor-definition-searching-count",
+            name = name,
+            count = count
+        ),
     }
 }
 
