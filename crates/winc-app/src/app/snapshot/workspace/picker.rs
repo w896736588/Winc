@@ -439,3 +439,52 @@ fn scrolling_the_list_keeps_rows_at_the_top() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 快速打开中输入 `#` 列出工作区符号（来自符号索引）；回车打开所在的文件并跳到名字上。
+#[test]
+fn typing_hash_lists_workspace_symbols_and_jumps_to_one() {
+    let dir = sample_folder("picker-workspace-symbols");
+    let project = dir.join("workspace");
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("main.rs"), "fn main() {}\n\nfn greet() {}\n").unwrap();
+    let mut app = app_with(&project, false);
+    let root = app.editor.root().unwrap().to_path_buf();
+    app.open_picker();
+    app.overlays.picker.input.set_text("#gre");
+    // 列表中只有符号索引给出的名字：测试中没有事件循环，索引不会建立，这里直接填入。
+    app.overlays.picker.workspace_symbols = Some(vec![winc_editor::SymbolHit {
+        name: "greet".into(),
+        place: winc_editor::SymbolPlace {
+            path: root.join("main.rs"),
+            relative: "main.rs".into(),
+            line: 2,
+            col: 3,
+            kind: winc_editor::symbols::SymbolKind::Function,
+            owner: None,
+        },
+    }]);
+    app.picker_refresh();
+    assert!(app.picker_lists_workspace_symbols());
+    assert!(!app.picker_lists_symbols());
+    assert_eq!(app.overlays.picker.hits.len(), 1);
+
+    app.picker_accept();
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.path.as_deref(), Some(root.join("main.rs").as_path()));
+    assert_eq!(doc.text().pos_to_line_col(doc.selection.head), (2, 8));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// 没有打开文件时快速打开照样可用：文件表不依赖当前文档。
+#[test]
+fn quick_open_works_without_an_open_file() {
+    let dir = sample_folder("picker-no-file");
+    let project = dir.join("workspace");
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("a.rs"), "fn main() {}\n").unwrap();
+    let mut app = app_with(&project, false);
+    assert!(app.editor.active.is_none());
+    assert!(app.run_action(crate::keymap::Action::QuickOpen));
+    assert!(app.overlays.picker.open);
+    let _ = std::fs::remove_dir_all(dir);
+}

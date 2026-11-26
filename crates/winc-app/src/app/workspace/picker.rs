@@ -355,6 +355,13 @@ impl App {
             self.vim_list_refresh();
             return;
         }
+        if self.picker_lists_workspace_symbols() {
+            self.overlays.picker.goto = None;
+            self.drop_symbols();
+            self.workspace_symbols_refresh();
+            return;
+        }
+        self.overlays.picker.workspace_symbols = None;
         if self.picker_lists_symbols() {
             self.overlays.picker.goto = None;
             self.symbols_refresh();
@@ -488,6 +495,7 @@ impl App {
 
         let files = !self.picker_lists_commands()
             && !self.picker_lists_symbols()
+            && !self.picker_lists_workspace_symbols()
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
             && !self.overlays.picker.folders
@@ -601,6 +609,10 @@ impl App {
         }
         if self.picker_lists_commands() {
             self.palette_accept();
+            return;
+        }
+        if self.picker_lists_workspace_symbols() {
+            self.workspace_symbols_accept();
             return;
         }
         if self.picker_lists_symbols() {
@@ -753,6 +765,8 @@ pub struct Picker {
     pub(crate) scroll: f32,
     /// 在快速打开中输入 `@` 时列出的当前文件的符号。
     pub(crate) symbols: Option<crate::app::editor::symbols::SymbolList>,
+    /// 在快速打开中输入 `#` 时列出的工作区符号（来自符号索引），进入时读取一次。
+    pub(crate) workspace_symbols: Option<Vec<winc_editor::SymbolHit>>,
     /// 转到定义找到多个位置时，卡片中列出的位置。
     pub(crate) places: Option<crate::app::editor::definition::Places>,
     /// 面板列出分支（分支选择器）时的各行。
@@ -804,6 +818,7 @@ impl Default for Picker {
             stale: false,
             scroll: 0.0,
             symbols: None,
+            workspace_symbols: None,
             places: None,
             branch_rows: None,
             location_rows: None,

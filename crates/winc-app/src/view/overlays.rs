@@ -354,7 +354,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
                 "workspace-picker-commands",
                 count = app_mut.overlays.picker.hits.len()
             )
-        } else if app_mut.picker_lists_symbols() {
+        } else if app_mut.picker_lists_symbols() || app_mut.picker_lists_workspace_symbols() {
             t!(
                 "workspace-picker-symbols",
                 count = app_mut.overlays.picker.hits.len()
@@ -393,6 +393,8 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
             winc_vim::Listing::Marks => t!("workspace-picker-vim-marks"),
             winc_vim::Listing::Buffers => t!("workspace-picker-vim-buffers"),
         }
+    } else if app.picker_lists_workspace_symbols() {
+        t!("workspace-picker-workspace-symbols-placeholder")
     } else {
         t!("workspace-picker-placeholder")
     };
@@ -443,6 +445,10 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
     }
     if app.picker_lists_symbols() {
         draw_symbol_rows(app, frame, &parts);
+        return;
+    }
+    if app.picker_lists_workspace_symbols() {
+        draw_workspace_symbol_rows(app, frame, &parts);
         return;
     }
     if app.editor.root().is_none() {
@@ -887,6 +893,62 @@ fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         {
             let container = ellipsize(frame, container, app.fonts.ui_small, room);
             ui_text_small(frame, app, x + 8.0, row, &container, p.text_dim, clip);
+        }
+    }
+}
+
+/// 绘制工作区符号列表（快速打开中输入 `#`）：名字（方法写成 `类型::方法`），其后是淡色的所在
+/// 文件，右侧是淡色的符号种类。
+fn draw_workspace_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
+    let p = app.palette;
+    let list = parts.list;
+    let empty = if app.editor.root().is_none() {
+        Some(t!("workspace-picker-no-folder"))
+    } else if app.overlays.picker.workspace_symbols.is_none() {
+        Some(t!("workspace-picker-symbols-indexing"))
+    } else if app.overlays.picker.hits.is_empty() {
+        Some(t!("workspace-picker-no-matching-symbols"))
+    } else {
+        None
+    };
+    if let Some(message) = empty {
+        let row = Rect::new(list.x, list.y, list.w, list.h.min(PICKER_ROW));
+        ui_text(
+            frame,
+            app,
+            list.x + PICKER_TEXT_X,
+            row,
+            message,
+            p.text_dim,
+            list,
+        );
+        return;
+    }
+    let Some(hits) = app.overlays.picker.workspace_symbols.as_ref() else {
+        return;
+    };
+
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let Some(hit) = hits.get(app.overlays.picker.hits[i]) else {
+            continue;
+        };
+        let row = parts.row(i, scroll);
+        let clip = row.intersect(list);
+        draw_pick_row(app, frame, row, i, clip);
+
+        let label = hit.place.kind.label();
+        let right = row.right() - 14.0 - frame.measure(FontKind::Ui, app.fonts.ui_small, label);
+        ui_text_small(frame, app, right, row, label, p.text_dim, clip);
+
+        let room = (right - row.x - PICKER_TEXT_X - 16.0).max(0.0);
+        let name = hit.title();
+        let title = ellipsize(frame, &name, app.fonts.ui, room);
+        let x = ui_text(frame, app, row.x + PICKER_TEXT_X, row, &title, p.text, clip);
+        let room = (right - x - 8.0 - 16.0).max(0.0);
+        if room > 20.0 {
+            let relative = ellipsize(frame, &hit.place.relative, app.fonts.ui_small, room);
+            ui_text_small(frame, app, x + 8.0, row, &relative, p.text_dim, clip);
         }
     }
 }

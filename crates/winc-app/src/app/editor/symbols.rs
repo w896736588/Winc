@@ -63,6 +63,86 @@ impl App {
             && self.overlays.picker.input.text().starts_with('@')
     }
 
+    /// 是否正在列出工作区的符号，即输入框以 `#` 开头且不在其他列表中。
+    pub(crate) fn picker_lists_workspace_symbols(&self) -> bool {
+        self.overlays.picker.places.is_none()
+            && !self.picker_lists_branches()
+            && !self.picker_lists_locations()
+            && !self.overlays.picker.folders
+            && !self.overlays.picker.languages
+            && self.overlays.picker.vim_list.is_none()
+            && self.overlays.picker.remote.is_none()
+            && self.overlays.picker.input.text().starts_with('#')
+    }
+
+    /// 按当前查询刷新工作区符号列表。
+    ///
+    /// 符号来自工作区的符号索引（与转到定义同一份），名字按匹配度排序；索引还不可查询时列表
+    /// 为空，等索引建好后再输入即可列出。
+    pub(in crate::app) fn workspace_symbols_refresh(&mut self) {
+        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+            self.overlays.picker.workspace_symbols = None;
+            self.overlays.picker.hits.clear();
+            return;
+        };
+        // 进入目录时已在后台建立；还没开始（或已失效）时在这里发起。
+        self.ensure_symbol_index(&root);
+        if self.overlays.picker.workspace_symbols.is_none() {
+            self.overlays.picker.workspace_symbols = self.symbol_index.symbols();
+        }
+        let Some(hits) = &self.overlays.picker.workspace_symbols else {
+            self.overlays.picker.hits.clear();
+            return;
+        };
+        let needle =
+            input::palette::needle(self.overlays.picker.input.text().trim_start_matches('#'));
+        let mut scored: Vec<(u32, usize)> = (hits.iter().enumerate())
+            .filter_map(|(i, hit)| {
+                let score = match needle.is_empty() {
+                    true => 0,
+                    false => input::palette::rate(&needle, &hit.title())?,
+                };
+                Some((score, i))
+            })
+            .collect();
+        scored.sort();
+        self.overlays.picker.hits = scored.into_iter().map(|(_, i)| i).collect();
+        self.overlays
+            .picker
+            .hits
+            .truncate(winc_editor::PICKER_MAX_RESULTS);
+    }
+
+    /// 跳转到选中的工作区符号并关闭面板。
+    pub(in crate::app) fn workspace_symbols_accept(&mut self) {
+        let Some(&i) = self.overlays.picker.hits.get(self.overlays.picker.selected) else {
+            return;
+        };
+        let Some(hit) = self
+            .overlays
+            .picker
+            .workspace_symbols
+            .as_ref()
+            .and_then(|hits| hits.get(i))
+            .cloned()
+        else {
+            return;
+        };
+        // 先清空列表：关闭面板后不再按 `#` 模式刷新。
+        self.overlays.picker.workspace_symbols = None;
+        self.close_picker();
+        let place = crate::app::editor::definition::Place {
+            path: hit.place.path,
+            relative: hit.place.relative,
+            line: hit.place.line,
+            col: Some(hit.place.col),
+            marks: Vec::new(),
+            preview: String::new(),
+            owner: hit.place.owner,
+        };
+        self.open_place(&place, &hit.name);
+    }
+
     /// 按当前查询刷新符号列表。
     ///
     /// 查询为空时保持符号在文件中的顺序，并选中光标所在的符号；

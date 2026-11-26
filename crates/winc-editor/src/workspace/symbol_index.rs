@@ -232,6 +232,25 @@ pub struct SymbolPlace {
     pub owner: Option<String>,
 }
 
+/// 索引中的一个名字及它的第一处定义，供快速打开列出工作区符号。
+#[derive(Debug, Clone)]
+pub struct SymbolHit {
+    /// 名字。
+    pub name: String,
+    /// 第一处定义。
+    pub place: SymbolPlace,
+}
+
+impl SymbolHit {
+    /// 列表中的名字：方法写成 `类型::方法`，同名的方法才分得清。
+    pub fn title(&self) -> String {
+        match &self.place.owner {
+            Some(owner) => format!("{owner}::{}", self.name),
+            None => self.name.clone(),
+        }
+    }
+}
+
 /// 索引当前的阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexPhase {
@@ -595,6 +614,28 @@ impl SymbolIndex {
             places.extend(places_of(&table, table.postings.get(exact)));
         }
         Some(places)
+    }
+
+    /// 索引中的各个名字及第一处定义，按名字排序，供快速打开列出工作区符号。
+    ///
+    /// 同名有多个定义时只列第一处：列表用来找到名字，其余位置经「查找引用」查看。索引还不可
+    /// 查询时返回 `None`。
+    pub fn symbols(&self) -> Option<Vec<SymbolHit>> {
+        let table = self.read();
+        if !table.ready {
+            return None;
+        }
+        let mut hits: Vec<SymbolHit> = (table.postings.iter())
+            .filter_map(|(name, postings)| {
+                let place = places_of(&table, Some(postings)).into_iter().next()?;
+                Some(SymbolHit {
+                    name: name.clone(),
+                    place,
+                })
+            })
+            .collect();
+        hits.sort_by(|a, b| a.name.cmp(&b.name));
+        Some(hits)
     }
 
     /// 按目录中的变化更新索引：变化涉及的文件重新读取并提取符号，删除的去掉。
@@ -1520,6 +1561,13 @@ mod tests {
 
         // 不在索引中的名字返回空列表（调用方退回全文查找）。
         assert!(index.lookup("missing").unwrap().is_empty());
+
+        // 快速打开列出的工作区符号：按名字排序，方法带上所属类型。
+        let hits = index.symbols().unwrap();
+        let titles: Vec<String> = hits.iter().map(SymbolHit::title).collect();
+        assert_eq!(titles, ["MAX_SIZE", "Staff", "Staff::greet"]);
+        assert_eq!(hits[2].place.relative, "staff.py");
+        assert_eq!(hits[2].place.line, 1);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

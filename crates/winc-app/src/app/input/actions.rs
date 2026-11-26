@@ -89,6 +89,7 @@ impl App {
                 if self.overlays.picker.open
                     && !self.picker_lists_commands()
                     && !self.picker_lists_symbols()
+                    && !self.picker_lists_workspace_symbols()
                     && !self.overlays.picker.folders
                     && !self.overlays.picker.languages
                     && self.overlays.picker.vim_list.is_none()

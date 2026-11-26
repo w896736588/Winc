@@ -55,7 +55,7 @@ pub use workspace::project_search::{
     ReplacePreview, replace_in_document, replace_in_file,
 };
 pub use workspace::symbol_index::{
-    IndexOptions, IndexPhase, IndexStatus, SymbolIndex, SymbolPlace, indexable_language,
+    IndexOptions, IndexPhase, IndexStatus, SymbolHit, SymbolIndex, SymbolPlace, indexable_language,
 };
 pub use workspace::tree::{
     DirEntry, DirFetch, DirFetched, DirListing, DirScan, EXPAND_DIRS, Entry, EntryKind, Expansion,

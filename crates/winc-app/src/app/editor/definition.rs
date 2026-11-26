@@ -420,7 +420,7 @@ impl App {
     /// 确保符号索引已为当前工作区建立；第一次调用时先在后台读取缓存，再校正变化的文件。
     ///
     /// 设置中的「符号索引」一组改变后再次调用，索引按新选项重新建立。
-    fn ensure_symbol_index(&mut self, root: &Path) {
+    pub(in crate::app) fn ensure_symbol_index(&mut self, root: &Path) {
         // 没有事件循环（测试）时不建立：结果要等后台，测试中直接走同步的全文查找。
         if self.link.proxy.is_none() {
             return;
