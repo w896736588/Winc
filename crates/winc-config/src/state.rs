@@ -1294,7 +1294,7 @@ pub fn state_path() -> Option<PathBuf> {
 }
 
 /// 返回用户目录中存放状态文件的目录，不考虑便携版；无法确定用户目录时返回 `None`。
-pub(crate) fn user_state_dir() -> Option<PathBuf> {
+pub fn user_state_dir() -> Option<PathBuf> {
     let home = || std::env::var_os("HOME").map(PathBuf::from);
 
     if cfg!(target_os = "macos") {

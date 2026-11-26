@@ -460,10 +460,12 @@ impl App {
         }
     }
 
-    /// 缓存符号索引的目录：状态文件所在目录下的 `symbol-index`；确定不了时不用缓存。
+    /// 缓存符号索引的目录：用户数据目录下的 `symbol-index`。
+    ///
+    /// 不跟状态文件走：便携版的状态文件在程序目录中，重新安装程序会连同索引一起清掉。确定不了
+    /// 用户目录时不用缓存。
     fn symbol_cache_dir() -> Option<PathBuf> {
-        let state = winc_config::state_path()?;
-        Some(state.parent()?.join("symbol-index"))
+        Some(winc_config::user_state_dir()?.join("symbol-index"))
     }
 
     /// 把符号索引中的位置整理成浮窗条目：读入各行的内容作为预览。
