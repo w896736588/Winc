@@ -367,10 +367,24 @@ impl App {
             self.gutter_width(),
             status_height,
         );
-        // 差异标签：查找条放在差异的标题栏下面，不遮住标题栏右端的按钮。
+        // 差异标签：查找条放在差异的标题栏下面，不遮住标题栏右端的按钮；查找左侧（旧版本）
+        // 时放进左侧窗口，不盖住右侧正在编辑的文件。
         let diff = self.editor.active().and_then(|d| d.diff.as_deref());
         if let Some(view) = diff.filter(|_| self.layout.search.h > 0.0) {
             self.layout.search.y += crate::app::diff::diff_top(view);
+            if !view.is_unified()
+                && crate::app::diff::diff_find_side(view) == winc_editor::diff_view::LEFT
+            {
+                let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
+                let pane = parts.panes[winc_editor::diff_view::LEFT].text;
+                let w = self.layout.search.w.min((pane.w - 16.0).max(0.0));
+                self.layout.search = Rect::new(
+                    (pane.right() - 8.0 - w).max(pane.x),
+                    self.layout.search.y,
+                    w,
+                    self.layout.search.h,
+                );
+            }
         }
 
         self.place_terminal();

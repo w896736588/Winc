@@ -20,14 +20,29 @@ impl App {
         self.readonly_diff().is_none() && !self.combined_active()
     }
 
-    /// 当前标签是否为可编辑的差异：查找与替换在右侧对应的工作区文件中进行（见
-    /// [`App::in_diff_search`]）。
+    /// 当前标签是否为可编辑的差异：查找与替换在右侧对应的工作区文件中进行，光标停在左侧时
+    /// 查左侧的旧版本（见 [`App::diff_finds_left`]）。
     pub(in crate::app) fn editable_diff_active(&self) -> bool {
         self.diff_active() && self.can_replace()
     }
 
-    /// 在只读差异快照中推进一个时间片的查找，返回（差异标签的标识，所查一侧的选区）；
-    /// 当前标签不是只读差异时返回 `None`。
+    /// 当前标签是可编辑的差异、且光标停在左侧（旧版本）上：查找查左侧的只读快照，不切到
+    /// 右侧的工作区文件。
+    pub(in crate::app) fn diff_finds_left(&self) -> bool {
+        self.editor
+            .active()
+            .and_then(|doc| doc.diff.as_deref())
+            .is_some_and(reads_left)
+    }
+
+    /// 查找作用在差异文本上时返回该差异：只读快照，或光标停在左侧的可编辑差异。
+    pub(in crate::app) fn diff_find_view(&self) -> Option<&DiffView> {
+        let view = self.editor.active()?.diff.as_deref()?;
+        (view.new.path.is_none() || reads_left(view)).then_some(view)
+    }
+
+    /// 在差异的只读一侧推进一个时间片的查找，返回（差异标签的标识，所查一侧的选区）；
+    /// 当前标签不是只读差异、也不是查找左侧的可编辑差异时返回 `None`。
     ///
     /// 查找光标或选区所在的一侧；尚未在任一侧放置光标时查找右侧，右侧不存在
     /// （文件已删除）时查找左侧。所查的一侧变化时，等待中的跳转作废。
@@ -37,9 +52,14 @@ impl App {
             return self.update_combined_find();
         }
         let doc = self.editor.active()?;
-        let view = doc.diff.as_deref().filter(|view| view.new.path.is_none())?;
+        let view = doc.diff.as_deref()?;
+        // 可编辑的差异只在光标停在左侧时查左侧的快照；右侧交给工作区文件
+        // （见 [`App::in_diff_search`]）。
+        if view.new.path.is_some() && !reads_left(view) {
+            return None;
+        }
         let read = view.read_selection.filter(|s| !view.side(s.side).missing);
-        let side = read.map_or(if view.new.missing { LEFT } else { RIGHT }, |s| s.side);
+        let side = diff_find_side(view);
         let selection =
             read.map_or_else(Selection::default, |s| Selection::new(s.range.0, s.range.1));
         if self.bars.search.snapshot_side(doc) != Some(side) {
@@ -130,4 +150,13 @@ impl App {
         self.clamp_scroll();
         self.request_redraw();
     }
+}
+
+/// 可编辑的差异此刻是否查找左侧（旧版本）：光标停在左侧、左侧有内容。
+fn reads_left(view: &DiffView) -> bool {
+    view.new.path.is_some()
+        && !view.editing
+        && !view.side(LEFT).missing
+        && view.side(LEFT).text.len_chars() > 0
+        && view.read_selection.is_some_and(|s| s.side == LEFT)
 }

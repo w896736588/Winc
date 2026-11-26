@@ -4,6 +4,7 @@ use super::*;
 
 mod control_keys;
 pub(super) mod cursors;
+mod diff_find;
 pub(super) mod editing;
 pub(super) mod folding;
 mod hex;

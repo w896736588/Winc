@@ -1339,6 +1339,13 @@ pub(crate) fn diff_top(view: &DiffView) -> f32 {
     }
 }
 
+/// 差异查找所在的一侧：光标或选区所在的一侧；尚未在任一侧放置光标时右侧，右侧不存在
+/// （文件已删除）时左侧。
+pub(in crate::app) fn diff_find_side(view: &DiffView) -> usize {
+    let read = view.read_selection.filter(|s| !view.side(s.side).missing);
+    read.map_or(if view.new.missing { LEFT } else { RIGHT }, |s| s.side)
+}
+
 /// 在编辑区 `editor` 中计算差异 `view` 的几何布局。
 ///
 /// 中间从左到右依次是「»」、左侧行号栏、连接带、右侧行号栏、勾选框，两侧文字区平分剩余宽度；

@@ -22,13 +22,14 @@ impl App {
     /// `replace` 为 `true` 时同时展开替换；此时如果已有查找内容，焦点直接放到替换输入框。
     /// 没有可显示文本的文档时不打开。
     pub(in crate::app) fn open_search(&mut self, replace: bool) {
-        // 可编辑的差异标签中查找右侧的文件。
-        if self.editable_diff_active() {
+        // 可编辑的差异标签中查找右侧的文件；光标停在左侧时查左侧的旧版本（只读，不能替换）。
+        if self.editable_diff_active() && !self.diff_finds_left() {
             self.in_diff_search(|app| app.open_search(replace));
             return;
         }
         // 只读的差异快照不能替换，按只查找打开。
-        let snapshot = self.readonly_diff().is_some() || self.combined_active();
+        let snapshot =
+            self.readonly_diff().is_some() || self.combined_active() || self.diff_finds_left();
         let replace = replace && !snapshot;
         let preview = self.markdown_focused();
         if !snapshot && !preview && !self.editor.active().is_some_and(|d| d.edits_text()) {
@@ -78,7 +79,7 @@ impl App {
             let text = self.markdown_selected_text()?;
             return (text.chars().count() < 200 && !text.contains('\n')).then_some(text);
         }
-        if let Some(view) = self.readonly_diff() {
+        if let Some(view) = self.diff_find_view() {
             let selected = view.read_selection?;
             let (a, b) = selected.range;
             let text = &view.side(selected.side).text;
@@ -141,7 +142,7 @@ impl App {
     ///
     /// 还没有查找内容时，先用光标所在的词（`search_seed`）作为查找内容。
     pub(in crate::app) fn find_again(&mut self, backwards: bool) {
-        if self.editable_diff_active() {
+        if self.editable_diff_active() && !self.diff_finds_left() {
             self.in_diff_search(|app| app.find_again(backwards));
             return;
         }
@@ -495,7 +496,7 @@ impl App {
 
     /// 查找下一个匹配（`backwards` 为 `true` 时查找上一个）；查找内容为空时不处理。
     pub(in crate::app) fn find_next(&mut self, backwards: bool) {
-        if self.editable_diff_active() {
+        if self.editable_diff_active() && !self.diff_finds_left() {
             self.in_diff_search(|app| app.find_next(backwards));
             return;
         }
