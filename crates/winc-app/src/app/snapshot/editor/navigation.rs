@@ -1384,3 +1384,67 @@ fn command_click_selects_the_name_before_searching() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Go：方法分散在各文件、文件名又不以类型命名时，按索引记下的所属类型跳转，不列出其他类型的同名方法。
+#[test]
+fn a_go_member_call_jumps_to_the_indexed_owner_type() {
+    let dir = winc_config::files::canonicalize(sample_folder("definition-owner-go")).unwrap();
+    std::fs::write(
+        dir.join("main.go"),
+        "package main\n\nfunc run() {\n\tsvc := NewStore()\n\tsvc.Save()\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("store_impl.go"),
+        "package main\n\ntype Store struct{}\n\nfunc (s *Store) Save() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("cache_impl.go"),
+        "package main\n\ntype Cache struct{}\n\nfunc (c *Cache) Save() {}\n",
+    )
+    .unwrap();
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("main.go"));
+    app.symbol_index = winc_editor::SymbolIndex::collect_now(&dir, &[]);
+
+    caret_on(&mut app, "Save", 0);
+    app.go_to_definition();
+    assert_eq!(active_name(&app), "store_impl.go");
+    assert_eq!(selected_text(&app), "Save");
+    assert!(app.jumps.definitions.is_none(), "命中索引时不再全文查找");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// PHP：名字不区分大小写，类文件又不以类名命名时，同样按索引记下的所属类型跳转。
+#[test]
+fn a_php_member_call_jumps_to_the_indexed_owner_type() {
+    let dir = winc_config::files::canonicalize(sample_folder("definition-owner-php")).unwrap();
+    std::fs::write(
+        dir.join("main.php"),
+        "<?php\n$dy_vip = new DyVipService($user_id);\n$dy_vip->save();\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("services.php"),
+        "<?php\nclass DyVipService {\n    public function save() {}\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("other.php"),
+        "<?php\nclass Other {\n    public function save() {}\n}\n",
+    )
+    .unwrap();
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("main.php"));
+    app.symbol_index = winc_editor::SymbolIndex::collect_now(&dir, &[]);
+
+    caret_on(&mut app, "save", 0);
+    app.go_to_definition();
+    assert_eq!(active_name(&app), "services.php");
+    assert_eq!(selected_text(&app), "save");
+    assert!(app.jumps.definitions.is_none(), "命中索引时不再全文查找");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

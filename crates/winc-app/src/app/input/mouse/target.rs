@@ -946,7 +946,7 @@ impl App {
             let editing = self.settings.editing.as_ref().map(|(s, _)| *s);
             let icon = match self.settings_part_at(x, y) {
                 Some(SettingsPart::Field(s))
-                    if s.control() == SettingControl::Font || editing == Some(s) =>
+                    if s.control() == SettingControl::Font || s.is_list() || editing == Some(s) =>
                 {
                     CursorIcon::Text
                 }

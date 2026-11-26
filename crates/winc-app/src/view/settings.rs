@@ -421,9 +421,12 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
 
     match row.setting.control() {
         SettingControl::Font => draw_field(app, frame, row, clip),
-        // 「Git 程序」「LaTeX 程序」是填写的路径，没有可选的菜单：始终画成输入框。
+        // 「Git 程序」「LaTeX 程序」是填写的路径，「忽略的目录」「忽略的文件」是填写的一组名字：
+        // 没有可选的菜单，始终画成输入框。
         SettingControl::Command
-            if editing || matches!(row.setting, Setting::GitPath | Setting::LatexPath) =>
+            if editing
+                || row.setting.is_list()
+                || matches!(row.setting, Setting::GitPath | Setting::LatexPath) =>
         {
             draw_field(app, frame, row, clip)
         }
@@ -703,6 +706,7 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
     let on_menu = font && app.settings.hover == Some(SettingsPart::FontMenu(row.setting));
     let hovered = hovered || on_menu;
     let latex_auto = app.latex_tool_label();
+    let joined = |entries: &[String]| (!entries.is_empty()).then(|| entries.join(", "));
     let (configured, placeholder) = match row.setting {
         Setting::UiFont => (app.config.ui_font.clone(), t!("settings-font-default")),
         Setting::TerminalFont => (
@@ -719,6 +723,14 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
         Setting::TerminalShell => (None, t!("settings-terminal-shell-placeholder")),
         Setting::GitPath => (app.config.git_path.clone(), t!("settings-git-path-auto")),
         Setting::LatexPath => (app.config.latex_path.clone(), latex_auto.as_str()),
+        Setting::IndexIgnoreFolders => (
+            joined(&app.config.index_ignore_folders),
+            t!("settings-index-ignore-none"),
+        ),
+        Setting::IndexIgnoreFiles => (
+            joined(&app.config.index_ignore_files),
+            t!("settings-index-ignore-none"),
+        ),
         _ => (app.config.editor_font.clone(), t!("settings-font-default")),
     };
     // 字体输入框的文字不进入右端的下拉按钮。

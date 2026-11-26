@@ -83,6 +83,10 @@ pub struct Config {
     pub index_ignore_dependencies: Option<bool>,
     /// 建立符号索引时跳过构建输出目录（`dist`、`build`、`target` 等），默认为是。
     pub index_ignore_build: Option<bool>,
+    /// 建立符号索引时另外跳过的目录：一级目录名，或相对路径（如 `dist`、`src/generated`）。
+    pub index_ignore_folders: Vec<String>,
+    /// 建立符号索引时不收录的文件：文件名或相对路径的通配符（如 `*.min.js`、`**/*.generated.php`）。
+    pub index_ignore_files: Vec<String>,
     /// 是否可以拖动选中的文字来移动或复制（`editor.dragAndDrop`），默认为是。
     pub drag_and_drop: Option<bool>,
     /// 把目录拖进已打开目录的窗口时怎样处理，默认每次询问。

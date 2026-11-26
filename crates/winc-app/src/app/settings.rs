@@ -764,6 +764,7 @@ impl App {
 
         match setting.control() {
             SettingControl::Font => self.settings_start_editing(setting),
+            SettingControl::Command if setting.is_list() => self.settings_start_editing(setting),
             SettingControl::Switch => self.settings_toggle(setting),
             SettingControl::Command
             | SettingControl::Action
@@ -792,6 +793,7 @@ impl App {
             None if setting == Setting::TerminalShell => self.config.terminal_shell.clone(),
             None if setting == Setting::GitPath => self.config.git_path.clone(),
             None if setting == Setting::LatexPath => self.config.latex_path.clone(),
+            None if setting.is_list() => Some(self.list_value(setting).join(", ")),
             None => self.font_setting(setting).clone(),
         };
         let mut field = TextField::default();
@@ -830,6 +832,24 @@ impl App {
             Setting::TerminalFont => &self.config.terminal_font,
             Setting::MarkdownFont => &self.config.markdown_font,
             _ => &self.config.editor_font,
+        }
+    }
+
+    /// 列表设置项（忽略的目录、文件）在配置中的值。
+    pub(in crate::app) fn list_value(&self, setting: Setting) -> &[String] {
+        match setting {
+            Setting::IndexIgnoreFolders => &self.config.index_ignore_folders,
+            Setting::IndexIgnoreFiles => &self.config.index_ignore_files,
+            _ => &[],
+        }
+    }
+
+    /// 列表设置项在配置中的值的可写引用；不是列表设置项时为 `None`。
+    pub(in crate::app) fn list_value_mut(&mut self, setting: Setting) -> Option<&mut Vec<String>> {
+        match setting {
+            Setting::IndexIgnoreFolders => Some(&mut self.config.index_ignore_folders),
+            Setting::IndexIgnoreFiles => Some(&mut self.config.index_ignore_files),
+            _ => None,
         }
     }
 
@@ -902,7 +922,7 @@ impl App {
             return;
         };
         let (setting, text) = (*setting, field.text().trim().to_owned());
-        let value = (!text.is_empty()).then_some(text);
+        let value = (!text.is_empty()).then(|| text.clone());
 
         match tool_setting(setting) {
             Some((task, id)) => self.settings_commit_command(task, id, value),
@@ -927,6 +947,7 @@ impl App {
                 self.focus = Focus::Settings;
                 self.set_latex_path(value);
             }
+            None if setting.is_list() => self.settings_commit_list(setting, &text),
             None => self.settings_commit_font(setting, value),
         }
     }

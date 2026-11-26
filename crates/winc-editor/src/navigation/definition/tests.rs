@@ -397,6 +397,52 @@ fn member_access_gives_the_receiver_type() {
             "save",
             Some("Store"),
         ),
+        // Go：`:=` 的构造器去掉 `New`，结构体字面量和 `var` 声明取名字后面的类型。
+        (
+            "func run() {\n\tsvc := NewStore()\n\tsvc.Save()\n}\n",
+            "Save",
+            Some("Store"),
+        ),
+        ("svc := &Store{}\nsvc.Save()\n", "Save", Some("Store")),
+        (
+            "svc, err := NewStore()\nsvc.Save()\n",
+            "Save",
+            Some("Store"),
+        ),
+        (
+            "func (s *Store) Save() {\n\ts.save()\n}\n",
+            "save",
+            Some("Store"),
+        ),
+        ("svc := Store{}\nsvc.Save()\n", "Save", Some("Store")),
+        ("var svc *Store\nsvc.Save()\n", "Save", Some("Store")),
+        (
+            "func f(svc *Store) {\nsvc.Save()\n}\n",
+            "Save",
+            Some("Store"),
+        ),
+        // PHP：变量带 `$`，`new` 之后可以是带命名空间的类；类型属性写在变量之前。
+        (
+            "<?php\n$dy_vip = new DyVipService($user_id);\n$dy_vip->save();\n",
+            "save",
+            Some("DyVipService"),
+        ),
+        (
+            "<?php\n$dy_vip = new \\App\\Service\\DyVipService($user_id);\n$dy_vip->save();\n",
+            "save",
+            Some("DyVipService"),
+        ),
+        (
+            "private DyVipService $dy_vip;\n\n$this->dy_vip->save();\n",
+            "save",
+            Some("DyVipService"),
+        ),
+        // 用 `=` 调用同名的类（Python 等）不能当作 Go 的构造器去掉 `New`。
+        (
+            "form = NewUserForm()\nform.save()\n",
+            "save",
+            Some("NewUserForm"),
+        ),
         ("self.save()\nSelf::save()\n", "save", None),
         ("store = make()\nstore.save()\n", "save", None),
         ("make().save()\n\n", "save", None),

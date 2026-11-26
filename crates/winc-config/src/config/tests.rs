@@ -344,6 +344,8 @@ fn round_trips_through_json() {
         index_exclude: vec!["go".to_owned()],
         index_ignore_dependencies: Some(false),
         index_ignore_build: Some(true),
+        index_ignore_folders: vec!["dist".to_owned(), "src/generated".to_owned()],
+        index_ignore_files: vec!["*.min.js".to_owned()],
         drag_and_drop: Some(false),
         open_folder_in_new_window: Some(true),
         sticky_scroll: Some(false),

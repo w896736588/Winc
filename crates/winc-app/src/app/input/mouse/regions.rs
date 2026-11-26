@@ -148,7 +148,7 @@ impl App {
                     // 已经在编辑这一项时：点击定位光标，拖动选择文字。
                     self.focus = Focus::Setting;
                     self.click_field(x, y);
-                } else if setting.control() == SettingControl::Command {
+                } else if setting.control() == SettingControl::Command && !setting.is_list() {
                     self.settings_open_menu(setting);
                 } else {
                     self.settings_start_editing(setting);

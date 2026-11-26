@@ -252,4 +252,26 @@ impl App {
         self.save_config();
         self.request_redraw();
     }
+
+    /// 提交「忽略的目录」「忽略的文件」的输入：按逗号或空白分开，去掉空项和重复项，按新选项
+    /// 重新建立索引。
+    pub(in crate::app) fn settings_commit_list(&mut self, setting: Setting, text: &str) {
+        let mut entries: Vec<String> = Vec::new();
+        for entry in text.split([',', ' ', '\t', '\r', '\n']) {
+            let entry = entry.trim().trim_end_matches('/');
+            if !entry.is_empty() && !entries.iter().any(|known| known == entry) {
+                entries.push(entry.to_owned());
+            }
+        }
+        if let Some(list) = self.list_value_mut(setting) {
+            *list = entries;
+        }
+        self.settings.editing = None;
+        self.settings.editing_original = None;
+        self.settings.error = None;
+        self.focus = Focus::Settings;
+        self.refresh_symbol_index();
+        self.save_config();
+        self.request_redraw();
+    }
 }

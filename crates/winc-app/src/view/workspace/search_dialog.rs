@@ -530,6 +530,7 @@ fn draw_context(
             col: None,
             preview: text.replace('\t', "    "),
             marks,
+            owner: None,
         };
         let code = Rect::new(code_x, row.y, row.right() - 12.0 - code_x, row.h);
         frame.within(area, |frame| draw_code_with(app, frame, &line, code, 1.0));
@@ -568,6 +569,7 @@ mod tests {
             col: Some(col),
             preview: "…ue, for example \"Fixes #123\". -->".into(),
             marks: std::iter::once(25..28).collect(),
+            owner: None,
         };
         let marks = line_marks(text, &place, Some(3));
         let shown = text.replace('\t', "    ");

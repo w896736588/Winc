@@ -76,6 +76,10 @@ pub enum Setting {
     IndexIgnoreDependencies,
     /// 建立符号索引时跳过构建输出目录（`editor.indexIgnoreBuild`）。
     IndexIgnoreBuild,
+    /// 建立符号索引时另外跳过的目录（`editor.indexIgnoreFolders`，逗号分隔）。
+    IndexIgnoreFolders,
+    /// 建立符号索引时不收录的文件（`editor.indexIgnoreFiles`，逗号分隔的通配符）。
+    IndexIgnoreFiles,
     /// 拖动选中的文字来移动或复制（`editor.dragAndDrop`）。
     DragAndDrop,
     /// 粘滞滚动：滚动时在编辑区顶部钉住当前所在的函数、类和标题。
@@ -324,6 +328,7 @@ impl Setting {
             S::IndexLanguages | S::IndexIgnoreDependencies | S::IndexIgnoreBuild => {
                 SettingsPage::Editor
             }
+            S::IndexIgnoreFolders | S::IndexIgnoreFiles => SettingsPage::Editor,
             S::PreviewOnClick | S::DropFolder | S::CompactFolders | S::Outline | S::FindInFiles => {
                 SettingsPage::Files
             }
@@ -392,6 +397,8 @@ impl Setting {
             S::IndexLanguages => "editor.indexExclude",
             S::IndexIgnoreDependencies => "editor.indexIgnoreDependencies",
             S::IndexIgnoreBuild => "editor.indexIgnoreBuild",
+            S::IndexIgnoreFolders => "editor.indexIgnoreFolders",
+            S::IndexIgnoreFiles => "editor.indexIgnoreFiles",
             S::DragAndDrop => "editor.dragAndDrop",
             S::StickyScroll => "editor.stickyScroll",
             S::SmoothCaret => "editor.smoothCaretMovement",
@@ -497,6 +504,8 @@ impl Setting {
             Setting::IndexLanguages => t!("settings-index-languages"),
             Setting::IndexIgnoreDependencies => t!("settings-index-ignore-dependencies"),
             Setting::IndexIgnoreBuild => t!("settings-index-ignore-build"),
+            Setting::IndexIgnoreFolders => t!("settings-index-ignore-folders"),
+            Setting::IndexIgnoreFiles => t!("settings-index-ignore-files"),
             Setting::DragAndDrop => t!("settings-drag-and-drop"),
             Setting::DropFolder => t!("settings-drop-folder"),
             Setting::FindInFiles => t!("settings-find-in-files"),
@@ -609,6 +618,8 @@ impl Setting {
             Setting::IndexLanguages => Some(t!("settings-index-languages-desc")),
             Setting::IndexIgnoreDependencies => Some(t!("settings-index-ignore-dependencies-desc")),
             Setting::IndexIgnoreBuild => Some(t!("settings-index-ignore-build-desc")),
+            Setting::IndexIgnoreFolders => Some(t!("settings-index-ignore-folders-desc")),
+            Setting::IndexIgnoreFiles => Some(t!("settings-index-ignore-files-desc")),
             Setting::DragAndDrop => Some(t!("settings-drag-and-drop-desc")),
             Setting::DropFolder => Some(t!("settings-drop-folder-desc")),
             Setting::FindInFiles => Some(t!("settings-find-in-files-desc")),
@@ -761,7 +772,9 @@ impl Setting {
             | Setting::FixCommand(_)
             | Setting::TerminalShell
             | Setting::GitPath
-            | Setting::LatexPath => SettingControl::Command,
+            | Setting::LatexPath
+            | Setting::IndexIgnoreFolders
+            | Setting::IndexIgnoreFiles => SettingControl::Command,
             Setting::SkipOnSave
             | Setting::IndexLanguages
             | Setting::Language
@@ -792,6 +805,14 @@ impl Setting {
             | Setting::License => SettingControl::Link,
             Setting::Updates | Setting::KeyMatches => SettingControl::Button,
         }
+    }
+
+    /// 是否是填写一组名字的设置项（忽略的目录、文件）：点击后直接在行内输入，各项用逗号分隔。
+    pub fn is_list(self) -> bool {
+        matches!(
+            self,
+            Setting::IndexIgnoreFolders | Setting::IndexIgnoreFiles
+        )
     }
 }
 

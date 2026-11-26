@@ -353,6 +353,7 @@ impl App {
                     col: Some(m.cols.start),
                     preview: m.preview.clone(),
                     marks: std::iter::once(start..start + len).collect(),
+                    owner: None,
                 });
                 d.lens.push(m.cols.len());
             }

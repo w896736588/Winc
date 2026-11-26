@@ -83,6 +83,7 @@ impl App {
                 col: None,
                 preview: doc.bookmark_preview(line),
                 marks: Vec::new(),
+                owner: None,
             })
             .collect();
         if items.is_empty() {

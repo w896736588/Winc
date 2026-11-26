@@ -57,9 +57,11 @@ const BUILD_DIRS: &[&str] = &[
 const CACHE_MAX_FILES: usize = 50_000;
 const CACHE_MAX_PLACES: usize = 300_000;
 /// 缓存文件的格式版本；格式变化时旧缓存直接作废。
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 4;
 /// 读取缓存文件的大小上限（字节）。
 const CACHE_MAX_BYTES: u64 = 64 << 20;
+/// 缓存中一组字符串（忽略的目录、文件）的条数上限。
+const CACHE_MAX_LIST: usize = 4096;
 /// 判断「文件在写缓存之后改过」的余量（秒）：文件系统时间精度不高时避免漏掉同一秒内的修改。
 const STAMP_MARGIN: i64 = 1;
 
@@ -94,6 +96,10 @@ pub struct IndexOptions {
     pub skip_dependencies: bool,
     /// 跳过构建输出目录（`dist`、`build` 等）。
     pub skip_build: bool,
+    /// 另外跳过的目录：一级目录名，或相对路径（如 `dist`、`src/generated`）。
+    pub ignore_folders: Vec<String>,
+    /// 不收录的文件：文件名或相对路径的通配符（如 `*.min.js`、`**/*.generated.php`）。
+    pub ignore_files: Vec<String>,
 }
 
 impl Default for IndexOptions {
@@ -109,11 +115,15 @@ impl IndexOptions {
             exclude: Vec::new(),
             skip_dependencies: true,
             skip_build: true,
+            ignore_folders: Vec::new(),
+            ignore_files: Vec::new(),
         }
     }
 
-    /// 遍历目录时跳过的目录名。
-    fn skipped_dirs(&self) -> Vec<&'static str> {
+    /// 遍历目录时跳过的目录名：内置的依赖、构建输出目录，以及用户填写的一级目录名。
+    ///
+    /// 用户填写的带 `/` 的路径不能在遍历时按名字跳过，由 [`Self::skipped_path`] 判断。
+    fn skipped_dirs(&self) -> Vec<&str> {
         let mut skipped = Vec::new();
         if self.skip_dependencies {
             skipped.extend_from_slice(DEPENDENCY_DIRS);
@@ -121,19 +131,88 @@ impl IndexOptions {
         if self.skip_build {
             skipped.extend_from_slice(BUILD_DIRS);
         }
+        skipped.extend(
+            self.ignore_folders
+                .iter()
+                .map(String::as_str)
+                .filter(|entry| !entry.contains('/')),
+        );
         skipped
     }
 
-    /// 是否跳过相对路径 `relative`：某一级目录在这个集合中。
+    /// 是否跳过相对路径 `relative`：某一级目录在跳过的集合中，或符合用户填写的目录、文件。
     fn skipped_path(&self, relative: &str) -> bool {
         let skipped = self.skipped_dirs();
-        relative.split('/').any(|part| skipped.contains(&part))
+        relative.split('/').any(|part| skipped.contains(&part)) || self.ignored(relative)
+    }
+
+    /// 是否在用户填写的忽略列表中：带 `/` 的目录按相对路径前缀匹配，文件按通配符匹配。
+    ///
+    /// 不带 `/` 的目录名由遍历目录时的过滤处理，见 [`Self::skipped_dirs`]。
+    fn ignored(&self, relative: &str) -> bool {
+        self.ignore_folders
+            .iter()
+            .filter(|entry| entry.contains('/'))
+            .any(|entry| relative == entry || relative.starts_with(&format!("{entry}/")))
+            || self
+                .ignore_files
+                .iter()
+                .any(|pattern| glob_match(pattern, relative))
     }
 
     /// 是否收录语言 `id` 的文件。
     fn indexes_language(&self, id: &str) -> bool {
         !self.exclude.iter().any(|excluded| excluded == id)
     }
+}
+
+/// `pattern` 是否匹配相对路径 `relative`（用 `/` 分隔）：`*`、`?` 在一段名字内匹配，`**` 匹配
+/// 任意层目录；不含 `/` 的 pattern 只与文件名比较。
+fn glob_match(pattern: &str, relative: &str) -> bool {
+    let pattern: Vec<&str> = pattern.trim_matches('/').split('/').collect();
+    if pattern.iter().any(|segment| segment.is_empty()) {
+        return false;
+    }
+    if pattern.len() == 1 {
+        let name = relative.rsplit('/').next().unwrap_or(relative);
+        return segment_match(pattern[0], name);
+    }
+    let path: Vec<&str> = relative.split('/').collect();
+    fn walk(pattern: &[&str], path: &[&str]) -> bool {
+        match pattern.split_first() {
+            None => path.is_empty(),
+            Some((&"**", rest)) => (0..=path.len()).any(|skip| walk(rest, &path[skip..])),
+            Some((segment, rest)) => match path.split_first() {
+                Some((name, tail)) => segment_match(segment, name) && walk(rest, tail),
+                None => false,
+            },
+        }
+    }
+    walk(&pattern, &path)
+}
+
+/// 一段名字上的通配符匹配：`*` 匹配任意个字符，`?` 匹配一个字符。
+fn segment_match(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+    let (mut p, mut n) = (0, 0);
+    let (mut star, mut mark) = (None, 0);
+    while n < name.len() {
+        if pattern.get(p) == Some(&'*') {
+            (star, mark) = (Some(p), n);
+            p += 1;
+        } else if pattern.get(p).is_some_and(|&c| c == '?' || c == name[n]) {
+            (p, n) = (p + 1, n + 1);
+        } else if let Some(at) = star {
+            (p, n, mark) = (at + 1, mark + 1, mark + 1);
+        } else {
+            return false;
+        }
+    }
+    while pattern.get(p) == Some(&'*') {
+        p += 1;
+    }
+    p == pattern.len()
 }
 
 /// 索引中的一处定义。
@@ -149,6 +228,8 @@ pub struct SymbolPlace {
     pub col: usize,
     /// 定义的种类。
     pub kind: SymbolKind,
+    /// 所属类型或模块的名字（方法、成员、嵌套的符号）；这是方法名在各类型中重复时唯一的区分依据。
+    pub owner: Option<String>,
 }
 
 /// 索引当前的阶段。
@@ -232,13 +313,15 @@ fn phase_from(code: u8) -> IndexPhase {
 }
 
 /// 倒排表中的一个位置。
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Posting {
     /// 文件在 `Table::files` 中的编号。
     file: u32,
     line: u32,
     col: u32,
     kind: SymbolKind,
+    /// 所属类型或模块的名字。
+    owner: Option<String>,
 }
 
 /// 一个文件中收录的符号（名字和位置）。
@@ -247,6 +330,7 @@ struct Indexed {
     line: u32,
     col: u32,
     kind: SymbolKind,
+    owner: Option<String>,
 }
 
 /// 文件的变化依据：修改时间和大小，与缓存中记下的比较。
@@ -292,6 +376,8 @@ struct ListedFile {
 #[derive(Default)]
 struct Table {
     postings: HashMap<String, Vec<Posting>>,
+    /// 小写的名字到索引中的各写法：用于 PHP 这类名字不区分大小写的语言。
+    folded: HashMap<String, Vec<String>>,
     files: HashMap<u32, FileEntry>,
     ids: HashMap<String, u32>,
     next: u32,
@@ -319,7 +405,12 @@ impl Table {
                     line: symbol.line,
                     col: symbol.col,
                     kind: symbol.kind,
+                    owner: symbol.owner.clone(),
                 });
+            let folded = self.folded.entry(symbol.name.to_lowercase()).or_default();
+            if !folded.iter().any(|name| name == &symbol.name) {
+                folded.push(symbol.name.clone());
+            }
             self.places += 1;
         }
         self.ids.insert(entry.relative.clone(), id);
@@ -339,6 +430,13 @@ impl Table {
                 list.retain(|posting| posting.file != id);
                 if list.is_empty() {
                     self.postings.remove(&symbol.name);
+                    let lower = symbol.name.to_lowercase();
+                    if let Some(names) = self.folded.get_mut(&lower) {
+                        names.retain(|name| name != &symbol.name);
+                        if names.is_empty() {
+                            self.folded.remove(&lower);
+                        }
+                    }
                 }
             }
             self.places = self.places.saturating_sub(1);
@@ -385,6 +483,27 @@ impl Table {
 enum Edit {
     Remove(String),
     Set(FileEntry),
+}
+
+/// 把倒排表中的位置整理成查询结果。
+fn places_of(table: &Table, postings: Option<&Vec<Posting>>) -> Vec<SymbolPlace> {
+    let Some(postings) = postings else {
+        return Vec::new();
+    };
+    postings
+        .iter()
+        .filter_map(|posting| {
+            let file = table.files.get(&posting.file)?;
+            Some(SymbolPlace {
+                path: file.path.clone(),
+                relative: file.relative.clone(),
+                line: posting.line as usize,
+                col: posting.col as usize,
+                kind: posting.kind,
+                owner: posting.owner.clone(),
+            })
+        })
+        .collect()
 }
 
 /// 工作区的符号索引。
@@ -459,22 +578,22 @@ impl SymbolIndex {
         if !table.ready {
             return None;
         }
-        let Some(postings) = table.postings.get(name) else {
-            return Some(Vec::new());
-        };
-        let places = postings
-            .iter()
-            .filter_map(|posting| {
-                let file = table.files.get(&posting.file)?;
-                Some(SymbolPlace {
-                    path: file.path.clone(),
-                    relative: file.relative.clone(),
-                    line: posting.line as usize,
-                    col: posting.col as usize,
-                    kind: posting.kind,
-                })
-            })
-            .collect();
+        Some(places_of(&table, table.postings.get(name)))
+    }
+
+    /// 不区分大小写地查名字 `name` 的定义所在的位置，用于 PHP 这类名字本身不区分大小写的语言。
+    ///
+    /// 返回 `None` 和 [`Self::lookup`] 相同。
+    pub fn lookup_ignore_case(&self, name: &str) -> Option<Vec<SymbolPlace>> {
+        let table = self.read();
+        if !table.ready {
+            return None;
+        }
+        let lower = name.to_lowercase();
+        let mut places = Vec::new();
+        for exact in table.folded.get(&lower).into_iter().flatten() {
+            places.extend(places_of(&table, table.postings.get(exact)));
+        }
         Some(places)
     }
 
@@ -882,7 +1001,10 @@ fn list_files(
             }
             let relative = labelled_path(root, labelled, &path);
             let nested = |part: &str| skipped.contains(&part);
-            if relative.split('/').any(nested) || !seen.insert(relative.clone()) {
+            if relative.split('/').any(nested)
+                || options.ignored(&relative)
+                || !seen.insert(relative.clone())
+            {
                 continue;
             }
             files.push(ListedFile {
@@ -961,6 +1083,7 @@ fn extract(file: &ListedFile, options: &IndexOptions) -> Option<FileEntry> {
             line: symbol.line as u32,
             col: symbol.col as u32,
             kind: symbol.kind,
+            owner: symbol.container,
         })
         .collect();
     (!symbols.is_empty()).then(|| FileEntry {
@@ -1090,6 +1213,14 @@ fn encode(root: &Path, extra: &[PathBuf], options: &IndexOptions, table: &Table)
     }
     bytes.push(u8::from(options.skip_dependencies));
     bytes.push(u8::from(options.skip_build));
+    push_u32(&mut bytes, options.ignore_folders.len() as u32);
+    for entry in &options.ignore_folders {
+        push_str(&mut bytes, entry);
+    }
+    push_u32(&mut bytes, options.ignore_files.len() as u32);
+    for entry in &options.ignore_files {
+        push_str(&mut bytes, entry);
+    }
     push_u32(&mut bytes, table.files.len() as u32);
     // 按相对路径排序，缓存内容稳定，便于比较和排查。
     let mut files: Vec<&FileEntry> = table.files.values().collect();
@@ -1116,6 +1247,13 @@ fn encode(root: &Path, extra: &[PathBuf], options: &IndexOptions, table: &Table)
             push_u32(&mut bytes, symbol.line);
             push_u32(&mut bytes, symbol.col);
             bytes.push(kind_code(symbol.kind));
+            match &symbol.owner {
+                Some(owner) => {
+                    bytes.push(1);
+                    push_str(&mut bytes, owner);
+                }
+                None => bytes.push(0),
+            }
         }
     }
     bytes
@@ -1176,6 +1314,8 @@ fn cache_load(
         exclude,
         skip_dependencies,
         skip_build,
+        ignore_folders: cursor.strings()?,
+        ignore_files: cursor.strings()?,
     };
     if cached_options != *options {
         return None;
@@ -1219,11 +1359,17 @@ fn cache_load(
             let line = cursor.u32()?;
             let col = cursor.u32()?;
             let kind = kind_from(cursor.u8()?)?;
+            let owner = match cursor.u8()? {
+                0 => None,
+                1 => Some(cursor.string()?),
+                _ => return None,
+            };
             symbols.push(Indexed {
                 name,
                 line,
                 col,
                 kind,
+                owner,
             });
         }
         table.add(FileEntry {
@@ -1321,6 +1467,15 @@ impl<'a> Cursor<'a> {
         String::from_utf8(bytes.to_vec()).ok()
     }
 
+    /// 读取一组字符串；数量不合理（超过 [`CACHE_MAX_LIST`]）时返回 `None`。
+    fn strings(&mut self) -> Option<Vec<String>> {
+        let count = self.u32()? as usize;
+        if count > CACHE_MAX_LIST {
+            return None;
+        }
+        (0..count).map(|_| self.string()).collect()
+    }
+
     fn at_end(&self) -> bool {
         self.at == self.bytes.len()
     }
@@ -1357,6 +1512,7 @@ mod tests {
 
         let greet = index.lookup("greet").unwrap();
         assert_eq!((greet[0].line, greet[0].col), (1, 8));
+        assert_eq!(greet[0].owner.as_deref(), Some("Staff"));
 
         let constant = index.lookup("MAX_SIZE").unwrap();
         assert_eq!(constant[0].line, 4);
@@ -1366,6 +1522,148 @@ mod tests {
         assert!(index.lookup("missing").unwrap().is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 方法记下所属类型；不区分大小写的语言按小写也能查到；缓存写读之后所属类型不丢。
+    #[test]
+    fn methods_record_their_owner_across_files_and_the_cache() {
+        let dir = temp_dir("owner");
+        let cache =
+            std::env::temp_dir().join(format!("winc-symbol-owner-{}.bin", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&cache);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("services.php"),
+            "<?php\nclass DyVipService {\n    public function save() {}\n}\nclass Other {\n    public function save() {}\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("store.go"),
+            "package main\n\ntype Store struct{}\n\nfunc (s *Store) Save() {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("cache.go"),
+            "package main\n\ntype Cache struct{}\n\nfunc (c *Cache) Save() {}\n",
+        )
+        .unwrap();
+
+        let owners = |places: Vec<SymbolPlace>| {
+            let mut owners: Vec<(String, Option<String>)> = places
+                .into_iter()
+                .map(|place| (place.relative, place.owner))
+                .collect();
+            owners.sort();
+            owners
+        };
+        let check = |index: &SymbolIndex| {
+            assert_eq!(
+                owners(index.lookup("save").unwrap()),
+                [
+                    ("services.php".to_owned(), Some("DyVipService".to_owned())),
+                    ("services.php".to_owned(), Some("Other".to_owned())),
+                ]
+            );
+            // 不区分大小写时 `save` 和 `Save` 一并返回。
+            assert_eq!(index.lookup_ignore_case("SAVE").unwrap().len(), 4);
+            assert_eq!(
+                owners(index.lookup("Save").unwrap()),
+                [
+                    ("cache.go".to_owned(), Some("Cache".to_owned())),
+                    ("store.go".to_owned(), Some("Store".to_owned())),
+                ]
+            );
+        };
+        check(&SymbolIndex::build_now(
+            &dir,
+            &[],
+            IndexOptions::default(),
+            None,
+        ));
+
+        // 写出缓存再读回：所属类型也在缓存中。
+        SymbolIndex::build_now(&dir, &[], IndexOptions::default(), Some(&cache));
+        assert!(cache.is_file());
+        check(&SymbolIndex::build_now(
+            &dir,
+            &[],
+            IndexOptions::default(),
+            Some(&cache),
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&cache);
+    }
+
+    /// 用户填写的目录（名字或相对路径）和文件通配符不收录；增量更新也按它们跳过。
+    #[test]
+    fn custom_folders_and_file_patterns_are_skipped() {
+        let dir = temp_dir("custom");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src/legacy")).unwrap();
+        std::fs::create_dir_all(dir.join("generated")).unwrap();
+        std::fs::create_dir_all(dir.join("static")).unwrap();
+        std::fs::write(dir.join("src/keep.py"), "def keep():\n    pass\n").unwrap();
+        std::fs::write(dir.join("src/legacy/old.py"), "def legacy():\n    pass\n").unwrap();
+        std::fs::write(dir.join("generated/gen.py"), "def generated():\n    pass\n").unwrap();
+        std::fs::write(dir.join("static/site.min.js"), "function minified() {}\n").unwrap();
+        std::fs::write(dir.join("src/keep_test.py"), "def tested():\n    pass\n").unwrap();
+
+        let options = IndexOptions {
+            ignore_folders: vec!["generated".to_owned(), "src/legacy".to_owned()],
+            ignore_files: vec!["*.min.js".to_owned(), "**/*_test.py".to_owned()],
+            ..IndexOptions::default()
+        };
+        let index = SymbolIndex::build_now(&dir, &[], options.clone(), None);
+        assert!(!index.lookup("keep").unwrap().is_empty());
+        assert!(
+            index.lookup("legacy").unwrap().is_empty(),
+            "按相对路径忽略的目录不收录"
+        );
+        assert!(
+            index.lookup("generated").unwrap().is_empty(),
+            "按名字忽略的目录不收录"
+        );
+        assert!(
+            index.lookup("minified").unwrap().is_empty(),
+            "按文件名忽略的文件不收录"
+        );
+        assert!(
+            index.lookup("tested").unwrap().is_empty(),
+            "按相对路径忽略的文件不收录"
+        );
+
+        // 增量更新时忽略的路径去掉（即使文件存在），其余文件照常重新读取。
+        let edits = edits(
+            &dir,
+            &[],
+            &options,
+            &[dir.join("src/legacy/old.py"), dir.join("src/keep.py")],
+        );
+        match edits.as_slice() {
+            [Edit::Remove(ignored), Edit::Set(entry)] => {
+                assert_eq!(ignored, "src/legacy/old.py");
+                assert_eq!(entry.relative, "src/keep.py");
+            }
+            _ => panic!("expected a remove and a set"),
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 忽略文件的通配符：`*`、`?` 在一段名字内匹配，`**` 匹配任意层目录；不含 `/` 时只比文件名。
+    #[test]
+    fn glob_patterns_match_names_and_paths() {
+        assert!(glob_match("*.min.js", "static/site.min.js"));
+        assert!(!glob_match("*.min.js", "static/site.js"));
+        assert!(glob_match("**/*_test.py", "src/deep/a_test.py"));
+        assert!(glob_match("**/*_test.py", "a_test.py"));
+        assert!(glob_match("src/*.py", "src/a.py"));
+        assert!(!glob_match("src/*.py", "src/nested/a.py"));
+        assert!(glob_match("**/generated/**", "a/generated/b.py"));
+        assert!(glob_match("site.?.js", "site.a.js"));
+        assert!(!glob_match("src/", "src/a.py"));
     }
 
     /// 缓存写出后重新读出结果不变；文件改动、删除和新增按修改时间和大小发现，只重新读取这些文件。

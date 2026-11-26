@@ -625,7 +625,9 @@ const OWN_RECEIVERS: &[&str] = &["this", "self", "Self", "super", "base", "cls",
 /// `Type::name`、`ptr->name`）的接收者类型名；不是成员访问或无法推断时返回 `None`。
 ///
 /// 接收者以大写字母开头时即为类型；否则取 `text` 中光标之前最近的声明或赋值（`Type service`、
-/// `service: Type`、`service = new Type(`），没有时取之后的第一处，只识别以大写字母开头的类型名。
+/// `Type $service`、`service: Type`、`service = new Type(`、`service = new \A\B\Type(`、
+/// `service := Type{}`、`service := &Type{}`、`var service *Type`），没有时取之后的第一处，
+/// 只识别以大写字母开头的类型名。Go 的构造器 `service := NewType(` 按去掉 `New` 的名字算类型。
 /// 接收者指代当前对象（`this`、`self` 等）时返回 `None`。
 pub fn receiver_type(text: &Rope, line: usize, col: usize, name: &str) -> Option<String> {
     let content: Vec<char> = text.get_line(line)?.chars().collect();
@@ -662,8 +664,9 @@ pub fn receiver_type(text: &Rope, line: usize, col: usize, name: &str) -> Option
         return Some(receiver);
     }
     let escaped = regex::escape(&receiver);
+    // PHP 的变量名带 `$`，下面每条写法都允许接收者前有 `$`。
     let declared = compiled(&format!(
-        r"(?:\b(?P<a>[A-Z]\w*)(?:<[^;(){{}}=]*>)?(?:\[\])?[*&\s]+{escaped}\s*(?:[;=,)]|$)|\b{escaped}\s*:\s*(?:&\s*(?:mut\s+)?|\*)?(?:\w+(?:::|\.))*(?P<b>[A-Z]\w*)|\b{escaped}\s*:?=\s*(?:new\s+)?(?:\w+(?:::|\.))*(?P<c>[A-Z]\w*)\s*[(:{{<])"
+        r"(?:\b(?P<a>[A-Z]\w*)(?:<[^;(){{}}=]*>)?(?:\[\])?[*&\s]+(?:\$)?{escaped}\s*(?:[;=,)]|$)|\b(?:\$)?{escaped}\s*:\s*(?:&\s*(?:mut\s+)?|\*)?(?:\w+(?:::|\.))*(?P<b>[A-Z]\w*)|\b(?:\$)?{escaped}\s*(?:,\s*\w+)*\s*(?P<op>:?=)\s*(?:new\s+)?(?:&\s*)?(?:[\w.:\\]*\\)?(?:\w+(?:::|\.))*(?P<c>[A-Z]\w*)\s*(?P<e>[(:{{<])|\b(?:var\s+)?(?:\$)?{escaped}\s+\*?(?P<d>[A-Z]\w*)\s*(?:$|[=;,){{]))"
     ))?;
     let mut found = None;
     for (index, slice) in text.lines().enumerate() {
@@ -672,10 +675,23 @@ pub fn receiver_type(text: &Rope, line: usize, col: usize, name: &str) -> Option
         }
         let content = std::borrow::Cow::<str>::from(slice);
         if let Some(caps) = declared.captures(&content) {
-            let kind = ["a", "b", "c"]
+            let hit = ["a", "b", "c", "d"]
                 .into_iter()
-                .find_map(|group| caps.name(group));
-            found = kind.map(|m| m.as_str().to_owned()).or(found);
+                .find_map(|group| caps.name(group).map(|name| (group, name)));
+            if let Some((group, name)) = hit {
+                let mut type_name = name.as_str().to_owned();
+                // Go 的构造器 `service := NewType(…)`：去掉 `New` 前缀才是类型。Python 等语言
+                // 用 `=` 调用同名的类，不能这样处理，因此只认 `:=`。
+                if group == "c"
+                    && caps.name("op").is_some_and(|op| op.as_str() == ":=")
+                    && caps.name("e").is_some_and(|e| e.as_str() == "(")
+                    && let Some(rest) = type_name.strip_prefix("New")
+                    && rest.starts_with(char::is_uppercase)
+                {
+                    type_name = rest.to_owned();
+                }
+                found = Some(type_name);
+            }
         }
     }
     found

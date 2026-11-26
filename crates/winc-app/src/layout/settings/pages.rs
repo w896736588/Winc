@@ -171,6 +171,8 @@ impl SettingsPage {
                         S::IndexLanguages,
                         S::IndexIgnoreDependencies,
                         S::IndexIgnoreBuild,
+                        S::IndexIgnoreFolders,
+                        S::IndexIgnoreFiles,
                     ],
                 ),
                 group(

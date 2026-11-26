@@ -38,6 +38,8 @@ pub struct Place {
     ///
     /// 同一行有几处用法时合并成一项，这里记下合并后的范围。
     pub marks: Vec<std::ops::Range<usize>>,
+    /// 来自符号索引时，定义所属的类型或模块：接收者类型已知时据此只在同类型中找成员。
+    pub owner: Option<String>,
 }
 
 /// 卡片中列出的内容种类。
@@ -312,11 +314,15 @@ impl App {
         let Some(root) = root else {
             return self.no_definition(&name, !here.is_empty());
         };
-        // 先查工作区符号索引：命中时不必遍历目录、逐个读取文件。索引在第一次点击时于后台建立，
-        // 还没建好或没有收录这个名字（非代码文件、过大的文件）时退回全文查找。
+        // 先查工作区符号索引：命中时不必遍历目录、逐个读取文件。索引在第一次需要时于后台建立，
+        // 还没建好或没有收录这个名字（非代码文件、过大的文件）时退回全文查找。名字不区分大小写
+        // 的语言（PHP 等）按小写查。
         self.ensure_symbol_index(&root);
-        if !ignore_case
-            && let Some(found) = self.symbol_index.lookup(&name)
+        let found = match ignore_case {
+            true => self.symbol_index.lookup_ignore_case(&name),
+            false => self.symbol_index.lookup(&name),
+        };
+        if let Some(found) = found
             && !found.is_empty()
         {
             let from = path.clone().unwrap_or_default();
@@ -449,6 +455,8 @@ impl App {
             exclude: self.config.index_exclude.clone(),
             skip_dependencies: self.config.index_ignore_dependencies != Some(false),
             skip_build: self.config.index_ignore_build != Some(false),
+            ignore_folders: self.config.index_ignore_folders.clone(),
+            ignore_files: self.config.index_ignore_files.clone(),
         }
     }
 
@@ -481,19 +489,28 @@ impl App {
                 .collect();
             let indent = content.chars().take_while(|c| c.is_whitespace()).count();
             let preview: String = content.chars().skip(indent).collect();
-            let marks = preview
-                .find(name)
-                .map(|at| preview[..at].chars().count())
-                .map(|start| std::iter::once(start..start + len).collect::<Vec<_>>())
-                .unwrap_or_default();
+            // 名字应当在索引记下的列上；文件改过、列对不上时只按行内容找，打开后再在行内定位。
+            let start = place
+                .col
+                .checked_sub(indent)
+                .filter(|&start| preview.chars().skip(start).take(len).eq(name.chars()));
+            let marks = match start {
+                Some(start) => std::iter::once(start..start + len).collect(),
+                None => preview
+                    .find(name)
+                    .map(|at| preview[..at].chars().count())
+                    .map(|start| std::iter::once(start..start + len).collect())
+                    .unwrap_or_default(),
+            };
             items.push(Place {
                 path: place.path,
                 relative: place.relative,
-                line: place.line,
-                // 名字不在这一行（文件刚被改过）时，打开后按定义的写法在该行里重新找。
-                col: (!marks.is_empty()).then_some(place.col),
+                line,
+                // 名字不在索引记下的列上（文件刚被改过）时，打开后按定义的写法在该行里重新找。
+                col: start.map(|_| place.col),
                 preview,
                 marks,
+                owner: place.owner,
             });
         }
         items
@@ -668,6 +685,7 @@ impl App {
                         marks: name_in_preview(&m.preview, m.highlight.clone(), &name)
                             .into_iter()
                             .collect(),
+                        owner: None,
                     })
             })
             .collect();
@@ -924,18 +942,30 @@ fn arrange_definitions(
         items.retain(|place| filter.is_related(&place.path));
     }
     let exact = |place: &Place, type_name: &str| definition::named_after(&place.path, type_name);
+    // 索引里记下了定义所属的类型：接收者类型已知时先按它找，同名方法分散在各文件（Go、PHP 的
+    // 大型项目）也能只留下目标类型中的几处；不依赖文件是否以类型命名。
+    let owned = |place: &Place, type_name: &str| {
+        place
+            .owner
+            .as_deref()
+            .is_some_and(|owner| owner.eq_ignore_ascii_case(type_name))
+    };
     let type_name = receiver.as_ref().map(|(name, _)| name.as_str());
-    if let Some(name) = type_name
-        && items.iter().any(|place| exact(place, name).is_some())
-    {
-        items.retain(|place| exact(place, name).is_some());
-    } else if let Some((_, Some(local))) = receiver {
-        items.push(local.clone());
+    if let Some(name) = type_name {
+        if items.iter().any(|place| owned(place, name)) {
+            items.retain(|place| owned(place, name));
+        } else if items.iter().any(|place| exact(place, name).is_some()) {
+            items.retain(|place| exact(place, name).is_some());
+        } else if let Some((_, Some(local))) = receiver {
+            items.push(local.clone());
+        }
     }
     items.sort_by(|a, b| {
         let key = |place: &Place| {
+            let unowned = !type_name.is_some_and(|name| owned(place, name));
             let named = type_name.and_then(|name| exact(place, name)) != Some(true);
             (
+                unowned,
                 named,
                 place.path != *from,
                 definition::rank(&place.path, language, dir),
@@ -1089,6 +1119,7 @@ fn local_place(
         col: Some(col),
         preview,
         marks: vec![mark],
+        owner: None,
     }
 }
 

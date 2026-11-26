@@ -56,6 +56,12 @@ impl App {
             old.terminal_enabled != new.terminal_enabled && new.terminal_enabled == Some(false);
         let stop_remote =
             old.remote_enabled != new.remote_enabled && new.remote_enabled != Some(true);
+        // 「符号索引」一组的选项变了（例如恢复了默认值）：按新选项重建。
+        let index = old.index_exclude != new.index_exclude
+            || old.index_ignore_dependencies != new.index_ignore_dependencies
+            || old.index_ignore_build != new.index_ignore_build
+            || old.index_ignore_folders != new.index_ignore_folders
+            || old.index_ignore_files != new.index_ignore_files;
 
         if fonts || glyph_language {
             // 别的窗口已经用上了这些字体，这里也用得上；万一用不上，留着原来的字体。
@@ -114,6 +120,9 @@ impl App {
         }
         if stop_remote {
             self.stop_remote();
+        }
+        if index {
+            self.refresh_symbol_index();
         }
         // 模块关闭后它的那一页不再列出：设置停在该页时改到「模块」页。
         let page = self.settings.selected.page();

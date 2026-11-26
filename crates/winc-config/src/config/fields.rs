@@ -44,6 +44,36 @@ macro_rules! string_field {
     };
 }
 
+/// 字符串列表设置的 [`Field`]：键名和 [`Config`] 中对应的字段。逐项去掉首尾空白和末尾的 `/`，
+/// 空项和重复项不记录；没有内容时不写出。
+macro_rules! string_list_field {
+    ($key:literal, $field:ident) => {
+        Field {
+            key: $key,
+            read: |config, value, name, problems| {
+                let Some(items) = value.as_array() else {
+                    problems.push(t!("config-not-array", name = name));
+                    return;
+                };
+                for item in items {
+                    let Some(entry) = item.as_str() else {
+                        problems.push(t!("config-item-not-string", name = name));
+                        continue;
+                    };
+                    let entry = entry.trim().trim_end_matches('/');
+                    if !entry.is_empty() && !config.$field.iter().any(|known| known == entry) {
+                        config.$field.push(entry.to_owned());
+                    }
+                }
+            },
+            write: |config| {
+                (!config.$field.is_empty())
+                    .then(|| Json::Array(config.$field.iter().cloned().map(Json::String).collect()))
+            },
+        }
+    };
+}
+
 /// 字重设置：范围见 [`Config::FONT_WEIGHT_RANGE`]，读出时取整。
 macro_rules! weight_field {
     ($field:ident) => {
@@ -208,6 +238,8 @@ const EDITOR: &[Field] = &[
     },
     bool_field!("indexIgnoreDependencies", index_ignore_dependencies),
     bool_field!("indexIgnoreBuild", index_ignore_build),
+    string_list_field!("indexIgnoreFolders", index_ignore_folders),
+    string_list_field!("indexIgnoreFiles", index_ignore_files),
     bool_field!("openFolderInNewWindow", open_folder_in_new_window),
     Field {
         key: "dropFolder",

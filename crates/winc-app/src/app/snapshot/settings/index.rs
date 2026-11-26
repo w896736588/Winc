@@ -44,5 +44,41 @@ fn the_index_settings_choose_languages_and_folder_skips() {
     assert!(app.config.index_exclude.is_empty());
     assert_eq!(app.choice_text(Setting::IndexLanguages).0, "全部");
 
+    // 「忽略的目录」「忽略的文件」：点击直接进入输入；按逗号或空白分开，去掉空项、重复项和
+    // 目录末尾的 `/`，提交后写回配置。
+    app.settings_start_editing(Setting::IndexIgnoreFolders);
+    assert_eq!(app.focus, Focus::Setting);
+    app.edit_field(|f| {
+        f.select_all();
+        f.insert("dist, node_modules/  generated dist")
+    });
+    app.settings_commit_field();
+    assert_eq!(
+        app.config.index_ignore_folders,
+        ["dist", "node_modules", "generated"]
+    );
+    assert!(app.settings.editing.is_none());
+    assert_eq!(app.focus, Focus::Settings);
+
+    app.settings_start_editing(Setting::IndexIgnoreFiles);
+    app.edit_field(|f| {
+        f.select_all();
+        f.insert("*.min.js **/*.generated.php")
+    });
+    app.settings_commit_field();
+    assert_eq!(
+        app.config.index_ignore_files,
+        ["*.min.js", "**/*.generated.php"]
+    );
+
+    // 清空输入恢复为不忽略任何目录。
+    app.settings_start_editing(Setting::IndexIgnoreFolders);
+    app.edit_field(|f| {
+        f.set_text("");
+        true
+    });
+    app.settings_commit_field();
+    assert!(app.config.index_ignore_folders.is_empty());
+
     std::fs::remove_dir_all(&dir).unwrap();
 }
