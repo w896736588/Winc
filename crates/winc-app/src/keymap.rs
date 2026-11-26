@@ -635,9 +635,12 @@ pub fn lookup_allowed(
 ) -> Lookup {
     // 焦点在终端时，全局快捷键中只有带 ⌘ 的（macOS）或带 Ctrl+Shift 的
     // （其他系统）不交给终端程序，其余组合留给终端程序使用；
-    // 单按 Ctrl 的组合由终端程序处理。
-    let reaches = |mods: Mods| {
-        mods.has(Mods::META) || !cfg!(target_os = "macos") && mods.has(Mods::CTRL | Mods::SHIFT)
+    // 单按 Ctrl 的组合由终端程序处理。打开文件面板的 Ctrl+P 例外：在终端里也由 Winc
+    // 响应，不发给 shell（Ctrl+E 是 shell 的移到行尾，仍留给程序）。
+    let reaches = |b: &Binding| {
+        b.action == Action::QuickOpen && b.first.key == KeyCode::Char('p')
+            || b.first.mods.has(Mods::META)
+            || !cfg!(target_os = "macos") && b.first.mods.has(Mods::CTRL | Mods::SHIFT)
     };
     // 终端自己用到的键（清屏、新建标签等）在终端里不再作为其他范围的快捷键：终端的绑定暂停时
     // （全屏程序运行中），按键交给程序。所查绑定的第一段都是 `key`。
@@ -648,9 +651,7 @@ pub fn lookup_allowed(
         b.when.covers(context)
             && (context != Context::Terminal
                 || b.when == When::Terminal
-                || !owned
-                    && (b.when != When::Global
-                        || reaches(b.first.mods) && b.action.reaches_terminal()))
+                || !owned && (b.when != When::Global || reaches(b) && b.action.reaches_terminal()))
             && allowed(b)
     };
     match pending {

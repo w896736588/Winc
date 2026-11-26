@@ -81,6 +81,11 @@ impl App {
                 {
                     return false;
                 }
+                // 打开文件面板的 Ctrl+P 在终端里也由 Winc 响应（在 shell 里是上一条命令，
+                // 仍留给 Winc）；全屏程序和「程序优先」时交给程序。⌘P 照旧。
+                if action == Action::QuickOpen && !binding.first.mods.has(Mods::META) {
+                    return !alternate && !application;
+                }
                 if cfg!(target_os = "macos") && binding.first.mods.has(Mods::META) {
                     return true;
                 }

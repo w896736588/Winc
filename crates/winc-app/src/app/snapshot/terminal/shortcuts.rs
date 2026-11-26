@@ -300,3 +300,27 @@ fn plain_ctrl_c_copies_only_with_a_selection() {
     assert!(!app.on_shortcut(ctrl_c));
     crate::keymap::install(Preset::VsCode, &Custom::default());
 }
+
+/// 打开文件面板在终端里也响应 Ctrl+P（不发给 shell）；全屏程序和「程序优先」时交给程序。
+/// macOS 上的 ⌘P 照旧留给 Winc。
+#[test]
+fn quick_open_reaches_the_app_from_the_terminal() {
+    let mut app = blank_app(false);
+    show_terminal(&mut app, "output");
+    let quick = key(cmd(), KeyCode::Char('p'));
+    let mac = Os::CURRENT == Os::Mac;
+    assert!(app.binds(quick));
+    app.terminal
+        .tab_mut()
+        .unwrap()
+        .modes
+        .set(Modes::ALT_SCREEN, true);
+    assert_eq!(app.binds(quick), mac, "全屏程序运行中按键留给程序");
+    app.terminal
+        .tab_mut()
+        .unwrap()
+        .modes
+        .set(Modes::ALT_SCREEN, false);
+    app.config.terminal_application_priority = Some(true);
+    assert_eq!(app.binds(quick), mac, "程序优先时按键留给程序");
+}

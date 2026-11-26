@@ -96,6 +96,31 @@ fn ctrl_tab_switches_tabs_in_both_presets() {
     }
 }
 
+/// 打开文件面板在终端里也由 Winc 响应：Windows、Linux 上的 Ctrl+P 不发给 shell；
+/// 另一个别名 Ctrl+E 是 shell 的移到行尾，仍然留给程序。
+#[test]
+fn quick_open_reaches_the_app_from_the_terminal() {
+    for os in ALL_OS {
+        let mods = if os == Os::Mac {
+            Mods::META
+        } else {
+            Mods::CTRL
+        };
+        assert_eq!(
+            runs(os, mods, KeyCode::Char('p'), Context::Terminal),
+            Some(Action::QuickOpen),
+            "{os:?}"
+        );
+        if os != Os::Mac {
+            assert_eq!(
+                runs(os, Mods::CTRL, KeyCode::Char('e'), Context::Terminal),
+                None,
+                "{os:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn terminal_clipboard_keys_follow_each_system() {
     use Action::{TerminalCopy, TerminalPaste};
