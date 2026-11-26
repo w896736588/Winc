@@ -110,14 +110,24 @@ fn branch_ops_are_grouped_with_separators() {
             item(Rebase, 1),
             MenuEntry::Separator,
             item(Rename, 1),
+            item(CopyName, 1),
             item(Delete, 1),
         ]
     );
-    // 空的组不留分隔线：当前分支只能从它新建分支和重命名，远程分支最后没有删除。
+    // 空的组不留分隔线：当前分支只能从它新建分支、重命名和复制名字，远程分支最后没有删除。
     assert_eq!(
         branch_ops(0, &branches, &[], &[], false),
-        [item(NewFrom, 0), MenuEntry::Separator, item(Rename, 0)]
+        [
+            item(NewFrom, 0),
+            MenuEntry::Separator,
+            item(Rename, 0),
+            item(CopyName, 0),
+        ]
     );
     let remote = branch_ops(2, &branches, &[], &[], false);
-    assert_eq!(remote.last(), Some(&item(Rebase, 2)));
+    assert_eq!(remote.last(), Some(&item(CopyName, 2)));
+    // 复制名字不改仓库：忙碌时、当前分支、远程分支都可点。
+    for (i, busy) in [(0, true), (1, true), (2, false)] {
+        assert!(branch_ops(i, &branches, &[], &[], busy).contains(&item(CopyName, i)));
+    }
 }

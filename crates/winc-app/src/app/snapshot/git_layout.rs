@@ -257,3 +257,28 @@ fn staging_groups_partition_index_and_worktree_changes() {
 
     std::fs::remove_dir_all(&folder).unwrap();
 }
+
+/// 分支菜单里的「复制分支名」把分支名写入剪贴板；远程分支带着远程名。
+#[test]
+fn the_branch_menu_copies_the_name_to_the_clipboard() {
+    use crate::app::git::branch::BranchOp;
+    use winc_editor::git::Branch;
+
+    let dir = sample_folder("git-copy-branch-name");
+    let mut app = app_with(&dir, false);
+    let branch = Branch {
+        name: "origin/feat".to_owned(),
+        remote: true,
+        current: false,
+        upstream: None,
+        gone: false,
+        oid: String::new(),
+        time: 0,
+        local: String::new(),
+        ahead: 0,
+        behind: 0,
+    };
+    app.run_branch_op(BranchOp::CopyName, branch);
+    assert_eq!(app.clipboard_text().as_deref(), Some("origin/feat"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

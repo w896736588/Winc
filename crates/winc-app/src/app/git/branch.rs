@@ -38,6 +38,8 @@ pub enum BranchOp {
     Rebase,
     /// 重命名（输入新名字），只用于本地分支。
     Rename,
+    /// 把分支名复制到剪贴板；当前分支和远程分支都可以。
+    CopyName,
     /// 删除（先确认；未合并的再确认一次才强制删除）。
     Delete,
     /// 和当前分支比较：打开日志，列出从当前分支到它改了的文件。
@@ -45,12 +47,12 @@ pub enum BranchOp {
 }
 
 impl BranchOp {
-    /// 操作菜单的各组，顺序就是菜单里的顺序：切换和新建、比较、合到当前分支、删除。
+    /// 操作菜单的各组，顺序就是菜单里的顺序：切换和新建、比较、合到当前分支、重命名和复制、删除。
     const GROUPS: [&[BranchOp]; 4] = [
         &[BranchOp::Checkout, BranchOp::NewWorktree, BranchOp::NewFrom],
         &[BranchOp::Compare],
         &[BranchOp::Merge, BranchOp::Rebase],
-        &[BranchOp::Rename, BranchOp::Delete],
+        &[BranchOp::Rename, BranchOp::CopyName, BranchOp::Delete],
     ];
 
     /// 菜单里的文字：不写分支名。菜单是从这个分支的那一行弹出来的，另一边总是当前分支。
@@ -62,6 +64,7 @@ impl BranchOp {
             BranchOp::Merge => t!("git-branch-merge-into-current"),
             BranchOp::Rebase => t!("git-branch-rebase-current-onto"),
             BranchOp::Rename => t!("git-branch-rename"),
+            BranchOp::CopyName => t!("git-branch-copy-name"),
             BranchOp::Delete => t!("git-branch-delete"),
             BranchOp::Compare => t!("git-branch-compare-with-current"),
         }
@@ -334,8 +337,11 @@ pub(crate) fn branch_ops(
             .iter()
             .copied()
             .filter(|op| match op {
-                // 当前分支不能签出、合并、变基、删除自己。
-                _ if branch.current => matches!(op, BranchOp::NewFrom | BranchOp::Rename),
+                // 当前分支只能从它新建分支、重命名和复制名字，不能签出、合并、变基、删除自己。
+                _ if branch.current => matches!(
+                    op,
+                    BranchOp::NewFrom | BranchOp::Rename | BranchOp::CopyName
+                ),
                 // 已经在其他工作树里签出着、又是当前分支（`origin/main` 在 `main` 上）：
                 // 不能再签出该分支。
                 BranchOp::NewWorktree => {
@@ -353,6 +359,8 @@ pub(crate) fn branch_ops(
                 let gone = stale.contains(&local_name(branch));
                 let enabled = match op {
                     BranchOp::Delete => !busy && !elsewhere && !gone,
+                    // 复制名字不改仓库，忙的时候也能点。
+                    BranchOp::CopyName => true,
                     BranchOp::Checkout if elsewhere => true,
                     BranchOp::Checkout if gone => false,
                     _ => !busy,
@@ -558,6 +566,10 @@ impl App {
                 move |git, root| git.operate(root, &["rebase", "--end-of-options", &name]),
             ),
             BranchOp::Rename => self.open_rename_prompt(name),
+            BranchOp::CopyName => {
+                self.flash(t!("git-branch-copied", name = name.as_str()));
+                self.set_clipboard(name, false);
+            }
             BranchOp::Delete => self.confirm_delete_branch(name),
             BranchOp::Compare => self.git_compare_branch(&name),
         }
