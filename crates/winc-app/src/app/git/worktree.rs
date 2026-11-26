@@ -105,14 +105,11 @@ impl App {
         winc_editor::host::arg(root, path)
     }
 
-    /// 上下文栏上的项目名：打开的目录就是附属工作树时写它所属的仓库，同一个仓库的工作树之间切换时
-    /// 不变。打开的目录里有多个仓库时项目就是这个目录。没有打开目录时为 `None`。
+    /// 上下文栏上的项目名：打开的目录自己的名字。附属工作树写工作树的名字，同一个仓库的多个
+    /// 工作树同时开着时才能分清；打开的目录里有多个仓库时项目也是这个目录。没有打开目录时为
+    /// `None`。
     pub(crate) fn project_name(&self) -> Option<String> {
-        let folder = self.editor.workspace.as_ref()?;
-        let main = (self.editor.root() == self.git.root.as_deref())
-            .then(|| self.git.main_worktree())
-            .flatten();
-        Some(main.map_or_else(|| folder.name.clone(), worktree_name))
+        Some(self.editor.workspace.as_ref()?.name.clone())
     }
 
     /// 打开第 `i` 个工作树：`new_window` 时在新窗口（已经开着就切到那个窗口），否则在当前窗口

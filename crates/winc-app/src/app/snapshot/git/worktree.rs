@@ -754,9 +754,10 @@ fn the_folded_worktree_section_tells_when_other_worktrees_have_changes() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 项目名始终是仓库，位置行写工作树：主工作树写「主工作树」，附属工作树写它自己的名字。
+/// 项目名是打开的目录自己的名字：主工作树写主工作树的名字，附属工作树写它自己的名字，切换到
+/// 工作树时跟着换。
 #[test]
-fn the_location_row_does_not_repeat_the_project_name() {
+fn the_project_name_is_the_open_worktree() {
     let Some((mut app, root)) = git_app("git-location-label", false) else {
         return;
     };
@@ -770,7 +771,7 @@ fn the_location_row_does_not_repeat_the_project_name() {
     app.open_worktree(1, false);
     app.git_refresh();
     assert_eq!(app.git_location_label(), (name(&linked), None));
-    assert_eq!(app.project_name(), Some(name(&root)));
+    assert_eq!(app.project_name(), Some(name(&linked)));
     let _ = std::fs::remove_dir_all(&linked);
     let _ = std::fs::remove_dir_all(&root);
 }
