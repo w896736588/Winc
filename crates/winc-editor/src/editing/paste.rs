@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use winc_i18n::t;
 
-use crate::workspace::copying::{Copying, Skips, copy_item, download_item};
+use crate::workspace::copying::{Copying, Skips, copy_item, download_item, upload_item};
 
 pub use crate::workspace::copying::Skipped;
 
@@ -372,6 +372,44 @@ pub fn download_into(sources: &[PathBuf], dir: &Path, copying: &Copying) -> Down
             Ok(path) => outcome.done.push(path),
             Err(error) => {
                 outcome.failed = Some((skips.failed_name(), error));
+                break;
+            }
+        }
+    }
+    outcome
+}
+
+/// 一次上传的结果。
+#[derive(Debug, Default)]
+pub struct UploadOutcome {
+    /// 已上传的各项在远端的位置，顺序与输入相同。
+    pub done: Vec<PathBuf>,
+    /// 出错的那一项（输入中的名字）及原因；未出错时为 `None`。
+    pub failed: Option<(String, io::Error)>,
+}
+
+/// 把本机的 `sources` 逐项上传到目录 `dir`（远端），与已有条目同名的覆盖。
+///
+/// 目录连同其中的内容一起上传，符号链接上传它指向的内容；进度记入 `copying`，出错或被取消时
+/// 停止。
+#[must_use]
+pub fn upload_into(sources: &[PathBuf], dir: &Path, copying: &Copying) -> UploadOutcome {
+    let mut outcome = UploadOutcome::default();
+    for source in sources {
+        let name = match source.file_name() {
+            Some(name) => winc_backend::carry_name(name, source, dir),
+            None => {
+                let error =
+                    io::Error::new(io::ErrorKind::InvalidInput, t!("editor-paste-cannot-copy"));
+                outcome.failed = Some((crate::display_name(source).into_owned(), error));
+                break;
+            }
+        };
+        let target = dir.join(&name);
+        match upload_item(source, &target, copying) {
+            Ok(()) => outcome.done.push(target),
+            Err(error) => {
+                outcome.failed = Some((crate::display_name(source).into_owned(), error));
                 break;
             }
         }

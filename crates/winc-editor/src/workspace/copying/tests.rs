@@ -7,6 +7,34 @@ use super::*;
 use crate::test_util::scratch;
 
 #[test]
+fn uploading_overwrites_files_and_keeps_the_rest_of_the_folder() {
+    let dir = scratch("copying-upload");
+    fs::create_dir_all(dir.join("src/kit")).unwrap();
+    fs::write(dir.join("src/a.txt"), "new").unwrap();
+    fs::write(dir.join("src/kit/b.txt"), "inner").unwrap();
+    fs::create_dir_all(dir.join("dst/kit")).unwrap();
+    fs::write(dir.join("dst/a.txt"), "old").unwrap();
+    fs::write(dir.join("dst/kit/old.txt"), "keep").unwrap();
+    let copying = Copying::default();
+
+    upload_item(&dir.join("src/a.txt"), &dir.join("dst/a.txt"), &copying).unwrap();
+    assert_eq!(copying.item(), ("a.txt".to_owned(), Some(3)));
+    assert_eq!(fs::read_to_string(dir.join("dst/a.txt")).unwrap(), "new");
+
+    // 目录：同名覆盖，目标目录中其余的文件保留。
+    upload_item(&dir.join("src/kit"), &dir.join("dst/kit"), &copying).unwrap();
+    assert_eq!(copying.item(), ("kit".to_owned(), None));
+    assert_eq!(
+        fs::read_to_string(dir.join("dst/kit/b.txt")).unwrap(),
+        "inner"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("dst/kit/old.txt")).unwrap(),
+        "keep"
+    );
+}
+
+#[test]
 fn progress_follows_the_item_being_copied() {
     let dir = scratch("copying-progress");
     fs::write(dir.join("a.txt"), "hello").unwrap();

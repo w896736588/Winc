@@ -46,6 +46,10 @@ pub enum DialogPart {
     Second,
     /// 连接对话框的第三个输入框：密钥文件。
     Third,
+    /// 询问对话框的第四个输入框：保存连接对话框中的密钥文件。
+    Fourth,
+    /// 询问对话框的第五个输入框：保存连接对话框中的远端目录。
+    Fifth,
     /// 交互式变基的列表（键盘焦点）。
     RebaseList,
     /// 交互式变基列表的第几行。
@@ -83,6 +87,10 @@ pub struct DialogLayout {
     pub second: Rect,
     /// 连接对话框的第三个输入框；其他对话框为空矩形。
     pub third: Rect,
+    /// 询问对话框的第四个输入框；没有时为空矩形。
+    pub fourth: Rect,
+    /// 询问对话框的第五个输入框；没有时为空矩形。
+    pub fifth: Rect,
     /// 连接对话框第三个输入框右端选文件的按钮。
     pub choose: Option<Rect>,
     /// 顶部的标题行。
@@ -215,6 +223,8 @@ impl DialogLayout {
             values: Vec::new(),
             second: Rect::default(),
             third: Rect::default(),
+            fourth: Rect::default(),
+            fifth: Rect::default(),
             choose: None,
             header: at(header),
             close: at(close),
@@ -229,7 +239,7 @@ impl DialogLayout {
     }
 
     /// 计算询问对话框的几何：`lines` 是说明文字的行数，`values` 是只读信息的行数，`inputs` 是输入框
-    /// 的个数（最多 3 个），`remember` 表示输入框下面有「记住密码」一项
+    /// 的个数（最多 5 个），`remember` 表示输入框下面有「记住密码」一项
     /// （[`DialogPart::Checkout`]）。
     ///
     /// 窗口太窄时卡片缩到窗口以内，位置规则与 [`DialogLayout::compute`] 相同。标签在 `labels` 中
@@ -300,6 +310,8 @@ impl DialogLayout {
             values: rows.iter().map(|&r| at(r)).collect(),
             second: field(1),
             third: field(2),
+            fourth: field(3),
+            fifth: field(4),
             header: at(header),
             close: at(close),
             labels: labels.into_iter().map(at).collect(),
@@ -456,6 +468,20 @@ impl DialogLayout {
         layout
     }
 
+    /// 保存连接对话框的几何：地址、账号、密码、密钥文件、远端目录五行，密钥文件右端有选文件的
+    /// 按钮。
+    pub fn saved_remote_form(window: Rect) -> Self {
+        let mut layout = Self::question(window, 2, 0, 5, false);
+        let rect = layout.fourth;
+        layout.choose = Some(Rect::new(
+            rect.right() - 2.0 - DIALOG_CHANGE_W,
+            rect.y + 2.0,
+            DIALOG_CHANGE_W,
+            rect.h - 4.0,
+        ));
+        layout
+    }
+
     /// 输入框右端的选择按钮（[`DialogPart::Change`]）：「位置」的目录按钮，或密钥文件的选文件
     /// 按钮；没有时为 `None`。
     pub fn change(&self) -> Option<Rect> {
@@ -472,6 +498,8 @@ impl DialogLayout {
             (self.branch, DialogPart::Branch),
             (self.second, DialogPart::Second),
             (self.third, DialogPart::Third),
+            (self.fourth, DialogPart::Fourth),
+            (self.fifth, DialogPart::Fifth),
             (self.base, DialogPart::Base),
         ];
         // 选择按钮叠在输入框里面，先匹配这一项。

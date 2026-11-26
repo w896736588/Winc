@@ -105,6 +105,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         FormKind::Question(..)
         | FormKind::Remote { .. }
         | FormKind::Connect
+        | FormKind::SavedRemote { .. }
         | FormKind::GoToRevision
         | FormKind::CompareRevision { .. }
         | FormKind::RenameGroup
@@ -342,6 +343,8 @@ fn draw_question(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         (layout.branch, DialogPart::Branch),
         (layout.second, DialogPart::Second),
         (layout.third, DialogPart::Third),
+        (layout.fourth, DialogPart::Fourth),
+        (layout.fifth, DialogPart::Fifth),
     ];
     for (input, (rect, part)) in view.inputs.iter().zip(fields) {
         draw_field(app, frame, rect, part, &plan, input.placeholder);

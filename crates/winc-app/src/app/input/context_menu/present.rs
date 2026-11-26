@@ -86,6 +86,18 @@ pub(super) fn submenu_lead(items: &[MenuEntry]) -> Option<MenuCommand> {
     }
 }
 
+/// 返回「上传到 SFTP」子菜单：各个保存的连接，`enabled` 表示这一项能不能上传；没有保存的连接或
+/// 远端模块关闭时为 `None`。
+fn upload_menu(app: &App, enabled: bool) -> Option<MenuEntry> {
+    if !app.remote_enabled() || app.state.remotes.is_empty() {
+        return None;
+    }
+    let items = (app.state.remotes.iter().enumerate())
+        .map(|(index, _)| MenuEntry::Item(MenuCommand::UploadSftp(index), enabled))
+        .collect();
+    Some(MenuEntry::Submenu(t!("menu-upload-sftp").to_owned(), items))
+}
+
 impl App {
     /// 处理右键点击（macOS 上也包括 `⌃` 单击）：点在标签上弹出标签菜单，点在文件树里弹出
     /// 文件树菜单，点在编辑区里弹出编辑区菜单。
@@ -420,7 +432,11 @@ impl App {
                 let targets = self.tree_targets();
                 let remote =
                     !targets.is_empty() && targets.iter().all(|p| winc_backend::is_remote(p));
-                tree_selection_menu(self.tree_selected_files().len(), remote)
+                let mut menu = tree_selection_menu(self.tree_selected_files().len(), remote);
+                if let Some(upload) = upload_menu(self, !targets.is_empty()) {
+                    menu.extend([MenuEntry::Separator, upload]);
+                }
+                menu
             }
             MenuTarget::Tree(path) => {
                 // 目录自己的一行和空白处一样：不能改名、剪切、删除。
@@ -459,6 +475,9 @@ impl App {
                     ]);
                     menu.extend(self.git_change_items(path));
                 }
+                if let Some(upload) = upload_menu(self, true) {
+                    menu.extend([MenuEntry::Separator, upload]);
+                }
                 menu
             }
             MenuTarget::Editor(id) => 'editor: {
@@ -491,6 +510,9 @@ impl App {
                         MenuEntry::Item(MenuCommand::GitAction(history), true),
                         MenuEntry::Item(MenuCommand::ToggleBlame, true),
                     ]);
+                }
+                if let Some(upload) = upload_menu(self, doc.path.is_some()) {
+                    menu.extend([MenuEntry::Separator, upload]);
                 }
                 menu
             }
@@ -712,7 +734,11 @@ impl App {
             }
             MenuTarget::CommitFile(_) if self.commit_multi_selected() => {
                 let any_exists = (self.commit_selection().iter()).any(|path| self.may_exist(path));
-                commit_selection_menu(any_exists)
+                let mut menu = commit_selection_menu(any_exists);
+                if let Some(upload) = upload_menu(self, any_exists) {
+                    menu.extend([MenuEntry::Separator, upload]);
+                }
+                menu
             }
             MenuTarget::CommitFile(path) => {
                 let mut menu = commit_file_menu(
@@ -729,6 +755,9 @@ impl App {
                     .position(|e| matches!(e, MenuEntry::Item(MenuCommand::GitRollbackFile, _)));
                 if let Some(at) = at {
                     menu.splice(at..at, stage);
+                }
+                if let Some(upload) = upload_menu(self, self.may_exist(path)) {
+                    menu.extend([MenuEntry::Separator, upload]);
                 }
                 menu
             }

@@ -51,6 +51,8 @@ pub(crate) enum FormKind {
     Rebase(Box<RebaseForm>),
     /// 连接远端主机：主机、端口，见 [`crate::app::remote`]。
     Connect,
+    /// 保存远端连接：账号（`用户@主机`）和远端目录；`copy` 为真时从已有连接复制。
+    SavedRemote { copy: bool },
     /// 推送或拉取：远程、分支、会送出或带来的提交；推送可一并推送标签，拉取可选变基。
     Transfer(Box<TransferForm>),
 }
@@ -105,6 +107,7 @@ impl FormKind {
             FormKind::Question(prompt, origin) => Some(QuestionView::of(prompt, origin.as_deref())),
             FormKind::Remote { editing } => Some(QuestionView::remote(editing.as_deref())),
             FormKind::Connect => Some(QuestionView::connect()),
+            FormKind::SavedRemote { copy } => Some(QuestionView::saved_remote(*copy)),
             FormKind::GoToRevision => Some(QuestionView::go_to_revision()),
             FormKind::CompareRevision { commit } => Some(QuestionView::compare_revision(commit)),
             FormKind::LogPath => Some(QuestionView::log_path()),
@@ -128,6 +131,10 @@ pub(crate) struct FormDialog {
     pub second: TextField,
     /// 连接对话框的第三个输入框：密钥文件；其他表单不显示。
     pub third: TextField,
+    /// 保存连接对话框的第四个输入框：密钥文件；其他表单不显示。
+    pub fourth: TextField,
+    /// 保存连接对话框的第五个输入框：远端目录；其他表单不显示。
+    pub fifth: TextField,
     /// 新分支从哪个分支开始；`None` 是当前分支（游离时是当前提交）。
     pub base: Option<String>,
     /// 用「位置」右端的目录按钮选的目录，工作树建在它下面；`None` 是默认位置（见
@@ -230,7 +237,7 @@ impl App {
     }
 
     /// 返回当前分支的名字（游离时为 `HEAD`）和它的上游（远程、分支）。
-    fn current_tracking(&self) -> (String, Option<(String, String)>) {
+    pub(in crate::app) fn current_tracking(&self) -> (String, Option<(String, String)>) {
         let current = self.git.branches.iter().find(|b| b.current && !b.remote);
         let branch = current.map_or("HEAD", |b| b.name.as_str()).to_owned();
         let upstream = current.and_then(|b| b.upstream.clone()).unwrap_or_default();
@@ -327,6 +334,8 @@ impl App {
             name,
             second: TextField::masked(),
             third: TextField::default(),
+            fourth: TextField::default(),
+            fifth: TextField::default(),
             base: None,
             folder: None,
             copy: true,
@@ -368,6 +377,7 @@ impl App {
         match self.overlays.form_dialog.as_ref().map(|d| &d.kind) {
             Some(FormKind::Clone) => DialogLayout::clone_form(window),
             Some(FormKind::Connect) => DialogLayout::connect_form(window),
+            Some(FormKind::SavedRemote { .. }) => DialogLayout::saved_remote_form(window),
             Some(FormKind::Rebase(form)) if form.reword => DialogLayout::reword(window),
             Some(FormKind::Rebase(form)) => {
                 DialogLayout::rebase(window, form.rows.len(), form.pushed > 0)
@@ -421,6 +431,7 @@ impl App {
                 self.remote_plan(editing.as_deref(), dialog.name.text(), dialog.second.text())
             }
             FormKind::Connect => self.connect_plan(dialog),
+            FormKind::SavedRemote { .. } => self.saved_plan(dialog),
             FormKind::Transfer(form) => self.transfer_plan(dialog, form),
             FormKind::GoToRevision | FormKind::CompareRevision { .. } => {
                 let revision = dialog.name.text().trim();
@@ -631,6 +642,10 @@ impl App {
             self.submit_connect();
             return;
         }
+        if matches!(dialog.kind, FormKind::SavedRemote { .. }) {
+            self.submit_saved_remote();
+            return;
+        }
         if matches!(dialog.kind, FormKind::GoToRevision) {
             let revision = dialog.name.text().trim().to_owned();
             self.close_form_dialog();
@@ -680,6 +695,7 @@ impl App {
             }
             FormKind::Question(..)
             | FormKind::Connect
+            | FormKind::SavedRemote { .. }
             | FormKind::GoToRevision
             | FormKind::CompareRevision { .. }
             | FormKind::RenameGroup
@@ -774,6 +790,12 @@ impl App {
         }
         if layout.third.w > 0.0 {
             order.push(DialogPart::Third);
+        }
+        if layout.fourth.w > 0.0 {
+            order.push(DialogPart::Fourth);
+        }
+        if layout.fifth.w > 0.0 {
+            order.push(DialogPart::Fifth);
         }
         if plan.base_enabled && !pushing {
             order.push(DialogPart::Base);
@@ -905,7 +927,13 @@ impl App {
             return;
         }
         match self.dialog_part_at(x, y) {
-            Some(part @ (DialogPart::Branch | DialogPart::Second | DialogPart::Third)) => {
+            Some(
+                part @ (DialogPart::Branch
+                | DialogPart::Second
+                | DialogPart::Third
+                | DialogPart::Fourth
+                | DialogPart::Fifth),
+            ) => {
                 self.focus = Focus::Dialog;
                 if let Some(dialog) = &mut self.overlays.form_dialog {
                     dialog.focus = part;
@@ -926,10 +954,15 @@ impl App {
             .as_ref()
             .map(|dialog| &dialog.kind);
         let connecting = matches!(shown, Some(FormKind::Connect));
+        let saved = matches!(shown, Some(FormKind::SavedRemote { .. }));
         match part {
             DialogPart::Close | DialogPart::Cancel => self.close_form_dialog(),
             DialogPart::Confirm => self.submit_form_dialog(),
-            DialogPart::Branch | DialogPart::Second | DialogPart::Third => {
+            DialogPart::Branch
+            | DialogPart::Second
+            | DialogPart::Third
+            | DialogPart::Fourth
+            | DialogPart::Fifth => {
                 self.submit_form_dialog();
             }
             DialogPart::Base => {
@@ -941,7 +974,7 @@ impl App {
                 };
                 self.open_context_menu(target, menu_below(base));
             }
-            DialogPart::Change if connecting => self.pick(crate::app::Pick::KeyFile),
+            DialogPart::Change if connecting || saved => self.pick(crate::app::Pick::KeyFile),
             DialogPart::Change => self.pick(crate::app::Pick::WorktreeFolder),
             DialogPart::RebaseList => self.submit_form_dialog(),
             part @ (DialogPart::RebaseRow(_)

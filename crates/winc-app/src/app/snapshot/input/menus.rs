@@ -927,3 +927,37 @@ fn the_encoding_menu_offers_unicode_escapes_for_properties() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 保存的 SFTP 连接列在编辑区菜单的「上传到 SFTP」子菜单中；远端模块关闭时不列出。
+#[test]
+fn saved_sftp_connections_are_offered_in_the_editor_menu() {
+    use winit::keyboard::{Key, NamedKey};
+
+    let dir = sample_folder("upload-menu");
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.config.remote_enabled = Some(true);
+    app.state.remotes = vec![winc_config::Remote {
+        target: "me@devbox".into(),
+        directory: "/srv/app".into(),
+    }];
+    let at = |app: &App| {
+        let l = app.layout.text;
+        (l.x + 8.0, l.y + app.fonts.line_height / 2.0)
+    };
+    let upload = |app: &App| {
+        (menu_commands(app).into_iter())
+            .any(|(command, _)| matches!(command, MenuCommand::UploadSftp(0)))
+    };
+    paint(&mut app);
+    let point = at(&app);
+    right_click(&mut app, point);
+    assert!(upload(&app));
+
+    app.popup_logical_key(&Key::Named(NamedKey::Escape));
+    app.config.remote_enabled = Some(false);
+    paint(&mut app);
+    let point = at(&app);
+    right_click(&mut app, point);
+    assert!(!upload(&app));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -141,6 +141,41 @@ pub(crate) fn download_item(
     copy_top(from, to, links, copying, Some(skips))
 }
 
+/// 把本机的一项上传为 `to`，与它同名的条目覆盖：目录连同其中的内容逐项递归，符号链接按它指向
+/// 的内容上传；进度记入 `copying`。
+///
+/// 被 `copying` 取消时停止并返回 [`io::ErrorKind::Interrupted`]；已经上传的部分保留，不删除
+/// 目标目录中原来的内容。
+pub(crate) fn upload_item(from: &Path, to: &Path, copying: &Copying) -> io::Result<()> {
+    let meta = winc_backend::fs::metadata(from)?;
+    copying.begin(
+        crate::display_name(from).into_owned(),
+        meta.is_file().then_some(meta.len),
+    );
+    upload_tree(from, to, meta.kind, copying)
+}
+
+/// 上传种类为 `kind` 的 `from`；目录用 `mkdir -p` 建立，每一项开始之前检查是否已取消。
+fn upload_tree(from: &Path, to: &Path, kind: Kind, copying: &Copying) -> io::Result<()> {
+    if copying.is_cancelled() {
+        return Err(io::ErrorKind::Interrupted.into());
+    }
+    if !kind.is_dir() {
+        // 符号链接按它指向的内容上传：它指向本机，远端没有对应的链接。
+        let watch = |bytes| copying.advance(bytes);
+        return winc_backend::fs::copy_watched(from, to, &watch).map(drop);
+    }
+    winc_backend::fs::create_dir_all(to)?;
+    for entry in winc_backend::fs::read_dir(from)? {
+        let entry = entry?;
+        let path = entry.path();
+        let target = to.join(winc_backend::carry_name(&entry.name, from, to));
+        let kind = winc_backend::fs::metadata(&path)?.kind;
+        upload_tree(&path, &target, kind, copying)?;
+    }
+    Ok(())
+}
+
 fn copy_top(
     from: &Path,
     to: &Path,

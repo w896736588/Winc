@@ -617,6 +617,10 @@ impl App {
                 let canceled = self.copy_finished(&copying);
                 self.downloaded(outcome, canceled);
             }
+            UserEvent::Uploaded(outcome, copying, host) => {
+                let canceled = self.copy_finished(&copying);
+                self.uploaded(outcome, host, canceled);
+            }
             UserEvent::Copied(copies, failures, copying) => {
                 self.copy_finished(&copying);
                 self.copied_into_tree(copies, failures);

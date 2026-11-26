@@ -26,6 +26,9 @@ pub const BADGE_COLORS: usize = 10;
 /// 记住的提交信息的条数上限，与输入框的输入历史相同。
 pub const MAX_COMMIT_MESSAGES: usize = 50;
 
+/// 保存的远端连接数上限（个）。
+pub const MAX_REMOTES: usize = 50;
+
 impl State {
     /// 把提交过的信息 `message` 记为最新的一条：相同的旧条目移到最前，超过上限时丢掉最旧的。
     pub fn remember_commit_message(&mut self, message: &str) {
@@ -46,6 +49,15 @@ impl State {
         self.recent_languages.insert(0, id.to_owned());
         self.recent_languages.truncate(Self::RECENT_LANGUAGES);
     }
+}
+
+/// 用户保存的远端连接：连接目标和要打开的目录，见 [`State::remotes`]。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Remote {
+    /// 连接目标（`用户@主机`，可以带 `:端口`）；主机可以是 `~/.ssh/config` 中的别名。
+    pub target: String,
+    /// 在远端要打开的目录；空表示主目录。
+    pub directory: String,
 }
 
 /// 由程序维护的运行状态：最近目录、各目录的现场和项目工具选择。
@@ -153,6 +165,11 @@ pub struct State {
     ///
     /// 只记路径，不读取也不保存密钥的内容；路径原样交给 `ssh`。
     remote_keys: Vec<(String, String)>,
+    /// 用户保存的远端连接（`用户@主机` 和远端目录），最新的在前，最多 [`MAX_REMOTES`] 条。
+    ///
+    /// 与 `~/.ssh/config` 和最近打开过的目录分开记录，所有项目共用，下次启动沿用；不保存密码，
+    /// 连接时由 `ssh` 询问。
+    pub remotes: Vec<Remote>,
     /// Vim 模式的大写标记：名字、文件路径、行号与列号（都从 0 起），按名字排序。
     pub vim_marks: Vec<(char, PathBuf, usize, usize)>,
     /// Vim 模式命令行的历史，从旧到新，最多 `MAX_VIM_HISTORY` 条。
@@ -566,6 +583,23 @@ impl State {
             })
             .unwrap_or_default();
 
+        let remotes = root
+            .get("remotes")
+            .and_then(Json::as_array)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|item| {
+                let item = item.as_object()?;
+                let target = item.get("target")?.as_str().filter(|t| !t.is_empty())?;
+                let directory = item.get("directory").and_then(Json::as_str).unwrap_or("");
+                Some(Remote {
+                    target: target.to_owned(),
+                    directory: directory.to_owned(),
+                })
+            })
+            .take(MAX_REMOTES)
+            .collect();
+
         let vim_marks = vim_marks(root);
         let vim_commands = vim_history(root, "vimCommands");
         let vim_searches = vim_history(root, "vimSearches");
@@ -578,6 +612,7 @@ impl State {
             approved_commands,
             trusted_repos,
             remote_keys,
+            remotes,
             vim_marks,
             vim_commands,
             vim_searches,
@@ -941,6 +976,15 @@ impl State {
                 .map(|(target, key)| (target.clone(), Json::String(key.clone())));
             fields.push(("remoteKeys", Json::object(keys)));
         }
+        if !self.remotes.is_empty() {
+            let remotes = self.remotes.iter().map(|remote| {
+                Json::object(vec![
+                    ("target", Json::String(remote.target.clone())),
+                    ("directory", Json::String(remote.directory.clone())),
+                ])
+            });
+            fields.push(("remotes", Json::Array(remotes.collect())));
+        }
         if !self.tool_choices.is_empty() {
             let choices = self.tool_choices.iter().map(|(folder, run)| {
                 Json::object(vec![("folder", path(folder)), ("run", Json::Bool(*run))])
@@ -1077,6 +1121,33 @@ impl State {
         if !key.is_empty() {
             self.remote_keys.push((target.to_owned(), key.to_owned()));
             self.remote_keys.sort();
+        }
+    }
+
+    /// 保存一个远端连接：目标和目录都相同的已有记录不重复添加，否则加在最前；超出
+    /// [`MAX_REMOTES`] 的从末尾移除。
+    pub fn add_remote(&mut self, target: &str, directory: &str) {
+        let directory = directory.trim();
+        if target.is_empty() {
+            return;
+        }
+        if (self.remotes.iter()).any(|old| old.target == target && old.directory == directory) {
+            return;
+        }
+        self.remotes.insert(
+            0,
+            Remote {
+                target: target.to_owned(),
+                directory: directory.to_owned(),
+            },
+        );
+        self.remotes.truncate(MAX_REMOTES);
+    }
+
+    /// 去掉第 `index` 个保存的远端连接。
+    pub fn remove_remote(&mut self, index: usize) {
+        if index < self.remotes.len() {
+            self.remotes.remove(index);
         }
     }
 

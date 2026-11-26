@@ -58,6 +58,10 @@ workspace-download-skipped-item = { $name }（{ $reason }）
 workspace-download-skipped-more = { $paths }及其他 { $rest } 项
 workspace-download-file = 正在下载「{ $name }」… { $done } / { $total }
 workspace-download-folder = 正在下载「{ $name }」… 已下载 { $done }
+workspace-upload-done-one = 已上传「{ $name }」到 { $host }
+workspace-upload-done-many = 已上传 { $count } 项到 { $host }
+workspace-upload-failed = 无法上传「{ $name }」：{ $error }
+workspace-upload-disabled = 远端模块已关闭，先在设置中打开再上传
 workspace-download-canceled = 已取消下载
 workspace-tree-move-confirm-one = 要将「{ $name }」移到「{ $folder }」吗？
 workspace-tree-move-confirm-many = 要将这 { $count } 项移到「{ $folder }」吗？
@@ -196,6 +200,14 @@ workspace-picker-remote-hint-edit = { $platform ->
     [macos] ↩ 连接 · ⇥ 修改
    *[other] Enter 连接 · Tab 修改
 }
+workspace-picker-remote-hint-saved = { $platform ->
+    [macos] ↩ 连接 · ⇥ 复制
+   *[other] Enter 连接 · Tab 复制
+}
+workspace-picker-remote-hint-save = { common-key-enter } 保存
+workspace-picker-remote-save-here = 保存为 SFTP 连接…
+workspace-picker-remote-saved-new = 新增 SFTP 连接…
+workspace-picker-remote-saved-new-detail = 所有项目共用；用账号、密码或密钥登录
 workspace-picker-remote-config = 编辑 SSH 配置文件…
 workspace-remote-config-failed = 无法创建 SSH 配置文件：{ $error }
 workspace-picker-remote-loading = 正在读取…
@@ -217,6 +229,22 @@ workspace-remote-dialog-installing = 正在安装服务程序…
 workspace-remote-dialog-starting = 正在启动服务程序…
 workspace-remote-dialog-invalid-host = 主机名无效
 workspace-remote-dialog-invalid-port = 端口无效
+workspace-saved-dialog-title = 保存 SFTP 连接
+workspace-saved-dialog-copy-title = 复制 SFTP 连接
+workspace-saved-dialog-message = 用账号密码或密钥文件登录；密码存入系统的凭据存储，留空则连接时询问。所有项目共用。
+workspace-saved-dialog-host = SSH 地址
+workspace-saved-dialog-host-placeholder = 主机或 IP，可写 主机:端口
+workspace-saved-dialog-account = 账号
+workspace-saved-dialog-account-placeholder = 登录用户名
+workspace-saved-dialog-password = 密码
+workspace-saved-dialog-password-placeholder = 留空则连接时询问
+workspace-saved-dialog-key = 密钥文件
+workspace-saved-dialog-key-placeholder = 可选，登录用的私钥
+workspace-saved-dialog-folder = 远程目录
+workspace-saved-dialog-folder-placeholder = 例如 /var/www，留空进主目录
+workspace-saved-dialog-save = 保存
+workspace-saved-dialog-needs-account = 填写账号后才能保存密码
+workspace-saved-dialog-password-not-saved = 无法把密码存入系统的凭据存储，连接时会询问
 workspace-picker-remote-new = 新主机…
 workspace-remote-menu = 连接到 SSH 主机…
 workspace-remote-submenu = 连接到 SSH 主机

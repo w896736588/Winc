@@ -75,6 +75,8 @@ impl Row {
             RowAction::AddHere => Some(t!("workspace-picker-remote-hint-add")),
             RowAction::Enter(_) => Some(t!("workspace-picker-remote-hint-enter")),
             RowAction::Host(_) => Some(t!("workspace-picker-remote-hint-edit")),
+            RowAction::Saved { .. } => Some(t!("workspace-picker-remote-hint-saved")),
+            RowAction::SaveHere => Some(t!("workspace-picker-remote-hint-save")),
             _ => None,
         }
     }
@@ -115,6 +117,16 @@ enum RowAction {
     Config,
     /// 连接主机，再浏览其上的目录。
     Host(Target),
+    /// 连接主机并打开保存的目录：用户保存的远端连接，`index` 是它在状态中的位置。
+    Saved {
+        index: usize,
+        target: Target,
+        directory: String,
+    },
+    /// 打开对话框，填写新的远端连接。
+    NewSaved,
+    /// 把正在浏览的目录保存为远端连接。
+    SaveHere,
     /// 连接主机并直接打开输入中给出的目录。
     Destination(Target, String),
     /// 打开正在浏览的目录。
@@ -321,6 +333,27 @@ impl App {
             });
         }
 
+        // 用户保存的连接：所有项目共用，与 `ssh` 配置和最近目录分开列出；`⇥` 复制一份再改。
+        for (index, saved) in self.state.remotes.iter().enumerate() {
+            let Some(target) = Target::new(&saved.target) else {
+                continue;
+            };
+            if !fits(&saved.target) && !fits(&saved.directory) {
+                continue;
+            }
+            rows.push(Row {
+                title: saved.target.clone(),
+                detail: saved.directory.clone(),
+                icon: RowIcon::Host,
+                removable: true,
+                action: RowAction::Saved {
+                    index,
+                    target,
+                    directory: saved.directory.clone(),
+                },
+            });
+        }
+
         for folder in &self.state.recent {
             let Some(location) = winc_backend::locate(folder) else {
                 continue;
@@ -400,6 +433,13 @@ impl App {
         // 没有输入时最后一行通向配置文件：别名、密钥、跳板机都在那里设置。
         if needle.is_empty() {
             rows.push(Row {
+                title: t!("workspace-picker-remote-saved-new").to_owned(),
+                detail: t!("workspace-picker-remote-saved-new-detail").to_owned(),
+                icon: RowIcon::Host,
+                removable: false,
+                action: RowAction::NewSaved,
+            });
+            rows.push(Row {
                 title: t!("workspace-picker-remote-config").to_owned(),
                 detail: "~/.ssh/config".to_owned(),
                 icon: RowIcon::Config,
@@ -434,6 +474,13 @@ impl App {
                 icon: RowIcon::Open,
                 removable: false,
                 action,
+            });
+            rows.push(Row {
+                title: t!("workspace-picker-remote-save-here").to_owned(),
+                detail: shorten(dir, home),
+                icon: RowIcon::Host,
+                removable: false,
+                action: RowAction::SaveHere,
             });
             if dir != "/" {
                 rows.push(Row {
@@ -532,6 +579,27 @@ impl App {
             }
             // 连接在对话框中进行：进度、需要的输入和失败的原因都在那里，成功后回到面板选目录。
             (RowAction::Host(target), _) => self.connect_from_picker(&target, true),
+            (
+                RowAction::Saved {
+                    target, directory, ..
+                },
+                _,
+            ) => {
+                self.close_picker();
+                match directory.is_empty() {
+                    true => self.remote_open(target, String::new(), After::Browse),
+                    false => self.remote_open(target, directory, After::Open),
+                }
+            }
+            (RowAction::NewSaved, _) => {
+                self.close_picker();
+                self.open_saved_dialog("", "", false);
+            }
+            (RowAction::SaveHere, Some((target, dir))) => {
+                self.close_picker();
+                let directory = dir.clone();
+                self.open_saved_dialog(target.as_str(), &directory, false);
+            }
             (RowAction::Destination(target, folder), _) => {
                 self.close_picker();
                 self.remote_open(target, folder, After::Open);
@@ -556,7 +624,11 @@ impl App {
             (RowAction::Enter(name), Some((_, dir))) => self.remote_picker_go(child(&dir, &name)),
             (RowAction::Up, Some((_, dir))) => self.remote_picker_go(parent(&dir)),
             (
-                RowAction::OpenHere | RowAction::AddHere | RowAction::Enter(_) | RowAction::Up,
+                RowAction::OpenHere
+                | RowAction::AddHere
+                | RowAction::Enter(_)
+                | RowAction::Up
+                | RowAction::SaveHere,
                 None,
             ) => {}
         }
@@ -573,31 +645,36 @@ impl App {
     }
 
     /// 点击第 `row` 行行尾的「✕」：从最近的记录中移除这个目录；移除主机时移除其上的所有
-    /// 目录。选中的位置保持不变。
+    /// 目录；移除保存的连接时只去掉这一条。选中的位置保持不变。
     pub(in crate::app) fn forget_remote_row(&mut self, row: usize) {
         let list = self.overlays.picker.remote.as_ref();
-        let item = (self.overlays.picker.hits.get(row))
+        let action = (self.overlays.picker.hits.get(row))
             .and_then(|&i| list?.rows.get(i))
-            .filter(|item| item.removable);
-        let folders: Vec<PathBuf> = match item.map(|item| &item.action) {
-            Some(RowAction::Recent(folder)) => vec![folder.clone()],
-            Some(RowAction::Host(target)) => (self.state.recent.iter())
-                .filter(|folder| {
-                    winc_backend::locate(folder).is_some_and(|at| at.target == *target)
-                })
-                .cloned()
-                .collect(),
+            .filter(|item| item.removable)
+            .map(|item| item.action.clone());
+        let (mut folders, mut host, mut saved) = (Vec::new(), None, None);
+        match action {
+            Some(RowAction::Recent(folder)) => folders.push(folder),
+            Some(RowAction::Host(target)) => {
+                folders.extend(
+                    (self.state.recent.iter())
+                        .filter(|folder| {
+                            winc_backend::locate(folder).is_some_and(|at| at.target == target)
+                        })
+                        .cloned(),
+                );
+                host = Some(target);
+            }
+            Some(RowAction::Saved { index, .. }) => saved = Some(index),
             _ => return,
-        };
-        // 移除主机时连同为它指定的密钥文件。
-        let host = match item.map(|item| &item.action) {
-            Some(RowAction::Host(target)) => Some(target.clone()),
-            _ => None,
-        };
+        }
         let selected = self.overlays.picker.selected;
         let removed = host.clone();
         self.update_state(move |state| {
             folders.iter().for_each(|folder| state.forget(folder));
+            if let Some(index) = saved {
+                state.remove_remote(index);
+            }
             if let Some(host) = &removed {
                 state.set_remote_key(host.as_str(), "");
             }
@@ -644,11 +721,23 @@ impl App {
         let row = (self.overlays.picker.hits.get(self.overlays.picker.selected))
             .and_then(|&i| list.rows.get(i));
         let Stage::Browse { dir, .. } = &list.stage else {
-            let edited = match (key, row.map(|row| &row.action)) {
-                (Key::Named(NamedKey::Tab), Some(RowAction::Host(target))) => target.clone(),
+            let action = row.map(|row| row.action.clone());
+            match (key, action) {
+                (Key::Named(NamedKey::Tab), Some(RowAction::Host(target))) => {
+                    self.connect_from_picker(&target, false);
+                }
+                // 保存的连接没有单独的修改入口：复制一份，改好保存就是新增。
+                (
+                    Key::Named(NamedKey::Tab),
+                    Some(RowAction::Saved {
+                        target, directory, ..
+                    }),
+                ) => {
+                    let host = target.as_str().to_owned();
+                    self.open_saved_dialog(&host, &directory, true);
+                }
                 _ => return false,
-            };
-            self.connect_from_picker(&edited, false);
+            }
             return true;
         };
         match key {

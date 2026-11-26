@@ -11,6 +11,7 @@ pub(super) mod picker;
 mod places;
 mod project;
 pub(super) mod recent;
+mod saved_remote;
 pub(super) mod search;
 mod search_dialog;
 mod search_tree;

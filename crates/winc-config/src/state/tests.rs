@@ -212,9 +212,12 @@ fn sample() -> State {
         approved_commands: vec![(PathBuf::from("/a/项目/.winc"), "rustfmt \"$FILE\"".into())],
         trusted_repos: vec![(PathBuf::from("/a/项目"), u64::MAX - 1)],
         remote_keys: Vec::new(),
+        remotes: Vec::new(),
     };
     state.set_remote_key("me@devbox:2200", "~/.ssh/工作 key");
     state.set_remote_key("build", "/keys/build");
+    state.add_remote("me@devbox:2200", "~/src/项目");
+    state.add_remote("deploy@10.0.0.2", "/srv/www");
     state.assign_badges();
     state
 }
@@ -229,6 +232,53 @@ fn a_key_file_is_kept_per_remote_host_until_cleared() {
     state.set_remote_key("build", "");
     assert_eq!(state.remote_key("build"), None);
     assert_eq!(state.remote_key("me@devbox:2200"), Some("~/.ssh/工作 key"));
+}
+
+#[test]
+fn saved_remotes_are_copied_kept_and_removed() {
+    let mut state = State::default();
+    state.add_remote("me@devbox", "/srv/app");
+    // 目标和目录都相同的记录只留一条；改了目录是另一个连接，加在最前。
+    state.add_remote("me@devbox", "/srv/app");
+    state.add_remote("me@devbox", "/srv/other");
+    assert_eq!(
+        state.remotes,
+        [
+            Remote {
+                target: "me@devbox".into(),
+                directory: "/srv/other".into()
+            },
+            Remote {
+                target: "me@devbox".into(),
+                directory: "/srv/app".into()
+            }
+        ]
+    );
+    // 超过上限时丢掉最旧的。
+    for i in 0..MAX_REMOTES {
+        state.add_remote(&format!("host{i}"), "/");
+    }
+    assert_eq!(state.remotes.len(), MAX_REMOTES);
+    assert!(
+        state
+            .remotes
+            .iter()
+            .all(|remote| remote.target != "me@devbox")
+    );
+    // 删除后写出再读入一致。
+    state.remove_remote(0);
+    state.remove_remote(usize::MAX);
+    assert_eq!(State::parse(&state.to_json()).remotes, state.remotes);
+    // 结构不符的项跳过。
+    let text =
+        r#"{"remotes": [{"target": "a", "directory": "/x"}, {"directory": "/y"}, {"target": ""}]}"#;
+    assert_eq!(
+        State::parse(text).remotes,
+        [Remote {
+            target: "a".into(),
+            directory: "/x".into()
+        }]
+    );
 }
 
 #[test]

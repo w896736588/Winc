@@ -31,7 +31,7 @@ pub use run::{
 pub use state::writer as state_writer;
 pub use state::{
     BADGE_COLORS, FilePlace, MAX_COMMIT_MESSAGES, MAX_PLACES, MAX_RECENT, MAX_RECENT_FILES,
-    MAX_SESSIONS, PaneNode, RECENT_IN_MENU, Session, SessionPane, SessionPanes, State, Tab,
-    TerminalGroup, TerminalSession, WindowFrame, state_path,
+    MAX_REMOTES, MAX_SESSIONS, PaneNode, RECENT_IN_MENU, Remote, Session, SessionPane,
+    SessionPanes, State, Tab, TerminalGroup, TerminalSession, WindowFrame, state_path,
 };
 pub use version::compare_versions;

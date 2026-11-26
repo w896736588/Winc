@@ -52,6 +52,10 @@ workspace-tree-copy-canceled = Copy canceled
 workspace-download-done-one = Downloaded “{ $name }”
 workspace-download-done-many = Downloaded { $count } items
 workspace-download-failed = Couldn’t download “{ $name }”: { $error }
+workspace-upload-done-one = Uploaded “{ $name }” to { $host }
+workspace-upload-done-many = Uploaded { $count } items to { $host }
+workspace-upload-failed = Couldn’t upload “{ $name }”: { $error }
+workspace-upload-disabled = The remote module is off; turn it on in settings to upload
 workspace-download-skipped = { $downloaded }, skipping { $count ->
         [one] { $count } item
        *[other] { $count } items
@@ -247,6 +251,14 @@ workspace-picker-remote-hint-edit = { $platform ->
     [macos] ↩ Connect · ⇥ Edit
    *[other] Enter Connect · Tab Edit
 }
+workspace-picker-remote-hint-saved = { $platform ->
+    [macos] ↩ Connect · ⇥ Duplicate
+   *[other] Enter Connect · Tab Duplicate
+}
+workspace-picker-remote-hint-save = { common-key-enter } Save
+workspace-picker-remote-save-here = Save as SFTP Connection…
+workspace-picker-remote-saved-new = New SFTP Connection…
+workspace-picker-remote-saved-new-detail = Shared by all projects; signs in with an account, password or key
 workspace-picker-remote-config = Edit SSH Config File…
 workspace-remote-config-failed = Couldn’t create the SSH config file: { $error }
 workspace-picker-remote-loading = Loading…
@@ -268,6 +280,22 @@ workspace-remote-dialog-installing = Installing Server…
 workspace-remote-dialog-starting = Starting Server…
 workspace-remote-dialog-invalid-host = Invalid host name
 workspace-remote-dialog-invalid-port = Invalid port
+workspace-saved-dialog-title = Save SFTP Connection
+workspace-saved-dialog-copy-title = Duplicate SFTP Connection
+workspace-saved-dialog-message = Signs in with an account and password or a key file; the password is kept in the system credential store, or asked when connecting if left empty. Shared by all projects.
+workspace-saved-dialog-host = SSH Address
+workspace-saved-dialog-host-placeholder = Host or IP; host:port works too
+workspace-saved-dialog-account = Account
+workspace-saved-dialog-account-placeholder = User name
+workspace-saved-dialog-password = Password
+workspace-saved-dialog-password-placeholder = Leave empty to ask when connecting
+workspace-saved-dialog-key = Key File
+workspace-saved-dialog-key-placeholder = Optional private key
+workspace-saved-dialog-folder = Remote Folder
+workspace-saved-dialog-folder-placeholder = For example /var/www; leave empty for home
+workspace-saved-dialog-save = Save
+workspace-saved-dialog-needs-account = An account is needed to keep the password
+workspace-saved-dialog-password-not-saved = Couldn’t store the password in the system credential store; it will be asked when connecting
 workspace-picker-remote-new = New Host…
 workspace-remote-menu = Connect to SSH Host…
 workspace-remote-submenu = Connect to SSH Host

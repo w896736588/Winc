@@ -218,6 +218,8 @@ pub enum MenuCommand {
     Paste,
     /// 远端的文件树：把这一项（多选时选中的各项）下载到本机的一个目录。
     Download,
+    /// 把这一项（多选时选中的各项）上传到第几个保存的 SFTP 连接（见 `State::remotes`）。
+    UploadSftp(usize),
     GoToDefinition,
     /// 打开光标处的链接。
     OpenLink,
@@ -596,6 +598,7 @@ impl MenuCommand {
             MenuCommand::Rename => t!("cmd-rename-file"),
             MenuCommand::Delete => t!("cmd-delete-file"),
             MenuCommand::Download => t!("menu-download"),
+            MenuCommand::UploadSftp(_) => t!("menu-upload-sftp"),
             MenuCommand::Close => t!("common-close"),
             MenuCommand::CloseOthers => t!("cmd-close-other-tabs"),
             MenuCommand::SplitRight => t!("cmd-split-right"),

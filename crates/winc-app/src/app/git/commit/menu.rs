@@ -345,6 +345,7 @@ impl App {
                 MenuCommand::CommitCheck(on) => self.set_commit_checked(&paths, on),
                 MenuCommand::CopyPath => self.copy_paths(&paths, false),
                 MenuCommand::CopyRelativePath => self.copy_paths(&paths, true),
+                MenuCommand::UploadSftp(index) => self.upload_sftp(index, paths),
                 _ => {}
             }
             return;
@@ -365,6 +366,7 @@ impl App {
                 self.copy_path(&path, command == MenuCommand::CopyRelativePath);
             }
             MenuCommand::Reveal => self.reveal_in_file_manager(&path),
+            MenuCommand::UploadSftp(index) => self.upload_sftp(index, vec![path]),
             MenuCommand::RevealInTree => {
                 self.show_files();
                 self.reveal_path(&path);

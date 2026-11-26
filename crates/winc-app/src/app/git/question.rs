@@ -176,6 +176,45 @@ impl QuestionView {
         }
     }
 
+    /// 返回保存远端连接的对话框内容：地址、账号、密码、密钥文件和远端目录。`copy` 为真时标题
+    /// 写成复制。
+    pub(crate) fn saved_remote(copy: bool) -> QuestionView {
+        let input = |label, placeholder| QuestionInput { label, placeholder };
+        QuestionView {
+            title: match copy {
+                true => t!("workspace-saved-dialog-copy-title"),
+                false => t!("workspace-saved-dialog-title"),
+            }
+            .to_owned(),
+            message: Some(t!("workspace-saved-dialog-message").to_owned()),
+            message_lines: 2,
+            values: Vec::new(),
+            inputs: vec![
+                input(
+                    t!("workspace-saved-dialog-host"),
+                    t!("workspace-saved-dialog-host-placeholder"),
+                ),
+                input(
+                    t!("workspace-saved-dialog-account"),
+                    t!("workspace-saved-dialog-account-placeholder"),
+                ),
+                input(
+                    t!("workspace-saved-dialog-password"),
+                    t!("workspace-saved-dialog-password-placeholder"),
+                ),
+                input(
+                    t!("workspace-saved-dialog-key"),
+                    t!("workspace-saved-dialog-key-placeholder"),
+                ),
+                input(
+                    t!("workspace-saved-dialog-folder"),
+                    t!("workspace-saved-dialog-folder-placeholder"),
+                ),
+            ],
+            confirm: t!("workspace-saved-dialog-save"),
+        }
+    }
+
     /// 返回 `prompt` 对应的对话框内容；`origin` 是提出请求的远端主机，排在只读信息的第一行。
     ///
     /// 远端主机上的命令提出的请求，答复会发到那台主机；提示的文字也由它给出，可以写成任何
@@ -376,6 +415,15 @@ impl App {
         };
         if let Some((_, _, password)) = self.git.branch.password.take_if(stored) {
             let _ = reply.send(password);
+            return;
+        }
+        // 保存的连接里存了登录密码（系统的凭据存储）：ssh 询问时直接使用，不再弹对话框。
+        if let Prompt::SshPassword { account, host } = &prompt
+            && let Some(credential) =
+                crate::credentials::find(&format!("ssh://{host}"), Some(account))
+            && !credential.password.is_empty()
+        {
+            let _ = reply.send(credential.password);
             return;
         }
         // 连接远端主机的对话框让位给询问，答复之后再回来（见 `connect_dialog_closed`）。

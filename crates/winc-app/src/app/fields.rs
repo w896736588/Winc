@@ -34,6 +34,8 @@ impl App {
             Focus::Dialog => self.overlays.form_dialog.as_mut().map(|d| match d.focus {
                 crate::layout::DialogPart::Second => &mut d.second,
                 crate::layout::DialogPart::Third => &mut d.third,
+                crate::layout::DialogPart::Fourth => &mut d.fourth,
+                crate::layout::DialogPart::Fifth => &mut d.fifth,
                 _ => &mut d.name,
             }),
             Focus::TerminalFind => self.terminal.find.as_mut().map(|f| &mut f.field),

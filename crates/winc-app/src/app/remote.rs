@@ -79,6 +79,8 @@ pub(in crate::app) enum After {
     Browse,
     /// 连接中断后自动重新连接到已打开的目录：不向用户提问，失败时改为提示并提供按钮。
     Restore,
+    /// 把排队的各项上传到取得的目录（见 [`App::upload_sftp`]）。
+    Upload,
 }
 
 impl Reached {
@@ -125,6 +127,8 @@ pub(crate) struct RemoteState {
     files: Option<(PathBuf, Vec<crate::cli::Target>)>,
     /// 连接成功后要打开的项目文件，其第一个目录在远端（见 [`App::open_folder`]）。
     pub(in crate::app) project: Option<PathBuf>,
+    /// 连接成功后要上传到取得的目录的本机各项（见 [`App::upload_sftp`]）；没有时为 `None`。
+    upload: Option<Vec<PathBuf>>,
 }
 
 impl Default for RemoteState {
@@ -144,6 +148,7 @@ impl Default for RemoteState {
             listed: picker::Listings::default(),
             files: None,
             project: None,
+            upload: None,
         }
     }
 }
@@ -223,6 +228,22 @@ fn key_exists(key: &str) -> bool {
         // 其他以 `~` 开头的写法（`~用户/…`）由 `ssh` 展开，这里无法判断，不拦。
         _ if key.starts_with('~') => true,
         _ => Path::new(key).is_file(),
+    }
+}
+
+/// 本机的用户名：`ssh` 没有指定用户时用它登录，保存的密码也按它存取。
+fn local_user() -> Option<String> {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .ok()
+        .filter(|user| !user.is_empty())
+}
+
+/// 由账号和主机（可以带 `:端口`）写出连接目标；没有账号时只有主机。
+fn saved_target(account: &str, host: &str) -> String {
+    match account.is_empty() {
+        true => host.to_owned(),
+        false => format!("{account}@{host}"),
     }
 }
 
@@ -700,6 +721,192 @@ impl App {
         }
     }
 
+    /// 打开「保存连接」对话框：从 `target` 和 `directory` 填好地址、账号和远端目录；`copy` 为真
+    /// 时是从已有连接复制。
+    ///
+    /// 保存的连接不写进 `~/.ssh/config`；密码保存在系统的凭据存储中（留空时连接时询问），密钥
+    /// 文件只记路径。所有项目共用。
+    pub(in crate::app) fn open_saved_dialog(&mut self, target: &str, directory: &str, copy: bool) {
+        let (account, host) = match target.rsplit_once('@') {
+            Some((account, host)) => (account.to_owned(), host.to_owned()),
+            None => (String::new(), target.to_owned()),
+        };
+        let account = match account.is_empty() {
+            true => local_user().unwrap_or_default(),
+            false => account,
+        };
+        let key = Target::new(target)
+            .and_then(|target| self.state.remote_key(target.as_str()).map(str::to_owned))
+            .unwrap_or_default();
+        let mut name = TextField::default();
+        name.insert(&host);
+        self.show_form_dialog(FormKind::SavedRemote { copy }, name, DialogPart::Branch);
+        if let Some(dialog) = &mut self.overlays.form_dialog {
+            dialog.second = TextField::default();
+            dialog.second.insert(&account);
+            dialog.third = TextField::masked();
+            dialog.fourth = TextField::default();
+            dialog.fourth.insert(&key);
+            dialog.fifth = TextField::default();
+            dialog.fifth.insert(directory);
+        }
+    }
+
+    /// 保存连接对话框按当前填写的内容能不能保存。
+    pub(in crate::app) fn saved_plan(&self, dialog: &FormDialog) -> FormPlan {
+        let host = dialog.name.text().trim();
+        let account = dialog.second.text().trim();
+        let password = dialog.third.text().trim();
+        let key = dialog.fourth.text().trim();
+        let target = saved_target(account, host);
+        let problem = if !target.is_empty() && Target::new(&target).is_none() {
+            Some(t!("workspace-remote-dialog-invalid-host"))
+        } else if !password.is_empty() && account.is_empty() {
+            // 密码按账号保存：没有账号时不知道 ssh 会用谁登录。
+            Some(t!("workspace-saved-dialog-needs-account"))
+        } else if !key.is_empty() && !key_exists(key) {
+            Some(t!("workspace-remote-dialog-missing-key"))
+        } else {
+            None
+        };
+        FormPlan {
+            enabled: !target.is_empty() && problem.is_none(),
+            problem: problem.map(str::to_owned),
+            confirm: t!("workspace-saved-dialog-save"),
+            base: String::new(),
+            base_enabled: false,
+            dir: None,
+        }
+    }
+
+    /// 提交保存连接对话框：记入全局状态（密码存入系统的凭据存储），再回到主机面板，新的连接列在
+    /// 其中。
+    pub(in crate::app) fn submit_saved_remote(&mut self) {
+        let Some(dialog) = &self.overlays.form_dialog else {
+            return;
+        };
+        let (host, account, password, key, directory) = (
+            dialog.name.text().trim().to_owned(),
+            dialog.second.text().trim().to_owned(),
+            dialog.third.text().trim().to_owned(),
+            dialog.fourth.text().trim().to_owned(),
+            dialog.fifth.text().trim().to_owned(),
+        );
+        let Some(valid) = Target::new(&saved_target(&account, &host)) else {
+            return;
+        };
+        let target = valid.as_str().to_owned();
+        let host = valid.host().into_owned();
+        self.update_state(move |state| {
+            state.add_remote(&target, &directory);
+            if !key.is_empty() {
+                state.set_remote_key(&target, &key);
+            }
+        });
+        if !password.is_empty() && !account.is_empty() {
+            let saved = crate::credentials::save(
+                &format!("ssh://{host}"),
+                &crate::credentials::Credential {
+                    username: account,
+                    password,
+                },
+            );
+            if !saved {
+                self.notify(
+                    NoticeKind::Warning,
+                    t!("workspace-saved-dialog-password-not-saved"),
+                );
+            }
+        }
+        self.close_form_dialog();
+        self.open_remote_picker();
+    }
+
+    /// 把本机的各项 `paths` 上传到第 `index` 个保存的连接：还没有连接时先连接（密码在连接时
+    /// 询问），取得保存的目录后上传，同名的文件和目录覆盖。
+    pub(in crate::app) fn upload_sftp(&mut self, index: usize, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        if !self.remote_enabled() {
+            self.flash(t!("workspace-upload-disabled"));
+            return;
+        }
+        let Some(saved) = self.state.remotes.get(index).cloned() else {
+            return;
+        };
+        let Some(target) = Target::new(&saved.target) else {
+            return;
+        };
+        self.remote.upload = Some(paths);
+        self.remote_open(target, saved.directory, After::Upload);
+    }
+
+    /// 在后台把 `paths` 上传到 `target` 上的目录 `folder`（取得的虚拟路径）。
+    fn start_upload(&mut self, target: Target, folder: &Path, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        let dir = folder.to_path_buf();
+        let name = paths
+            .first()
+            .map(|path| winc_editor::display_name(path).into_owned())
+            .unwrap_or_default();
+        let copy =
+            move |copying: &winc_editor::Copying| match winc_backend::fs::create_dir_all(&dir) {
+                // 保存的目录可能还不存在：先建出来，再逐项上传。
+                Ok(()) => winc_editor::paste::upload_into(&paths, &dir, copying),
+                Err(error) => winc_editor::paste::UploadOutcome {
+                    done: Vec::new(),
+                    failed: Some((name, error)),
+                },
+            };
+        let host = target.as_str().to_owned();
+        let done = move |outcome, copying| UserEvent::Uploaded(outcome, copying, host.clone());
+        if let Some(outcome) = self.spawn_copy(true, false, copy, done) {
+            self.uploaded(outcome, target.as_str().to_owned(), false);
+        }
+    }
+
+    /// 一次上传结束：提示上传到了哪台主机；出错时提示出错的一项和原因。`canceled` 为真时不提示，
+    /// 取消已经由复制流程提示过。
+    pub(in crate::app) fn uploaded(
+        &mut self,
+        outcome: winc_editor::paste::UploadOutcome,
+        host: String,
+        canceled: bool,
+    ) {
+        self.request_redraw();
+        if canceled {
+            return;
+        }
+        let winc_editor::paste::UploadOutcome { done, failed } = outcome;
+        if let Some((name, error)) = failed {
+            let error = error.to_string();
+            self.notify(
+                NoticeKind::Error,
+                t!("workspace-upload-failed", name = name, error = error),
+            );
+            return;
+        }
+        let Some(last) = done.last() else {
+            return;
+        };
+        let message = match done.as_slice() {
+            [_] => t!(
+                "workspace-upload-done-one",
+                name = winc_editor::display_name(last),
+                host = host
+            ),
+            many => t!(
+                "workspace-upload-done-many",
+                count = many.len(),
+                host = host
+            ),
+        };
+        self.notify(NoticeKind::Done, message);
+    }
+
     /// 连接对话框按当前填写的内容能不能连接，以及主按钮上的字。
     pub(in crate::app) fn connect_plan(&self, dialog: &FormDialog) -> FormPlan {
         let (host, port) = (dialog.name.text().trim(), dialog.second.text().trim());
@@ -770,16 +977,25 @@ impl App {
         }
     }
 
-    /// 在系统的面板中选好了密钥文件：填进连接对话框的密钥一行，焦点移到那里。
+    /// 在系统的面板中选好了密钥文件：填进连接或保存连接对话框的密钥一行，焦点移到那里。
     pub(in crate::app) fn key_file_picked(&mut self, path: &Path) {
         let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
         let text = key_text(path, home.as_deref().map(Path::new));
-        let dialog =
-            (self.overlays.form_dialog.as_mut()).filter(|d| matches!(d.kind, FormKind::Connect));
+        let dialog = (self.overlays.form_dialog.as_mut())
+            .filter(|d| matches!(d.kind, FormKind::Connect | FormKind::SavedRemote { .. }));
         if let Some(dialog) = dialog {
-            dialog.third.set_text("");
-            dialog.third.insert(&text);
-            dialog.focus = DialogPart::Third;
+            match dialog.kind {
+                FormKind::SavedRemote { .. } => {
+                    dialog.fourth.set_text("");
+                    dialog.fourth.insert(&text);
+                    dialog.focus = DialogPart::Fourth;
+                }
+                _ => {
+                    dialog.third.set_text("");
+                    dialog.third.insert(&text);
+                    dialog.focus = DialogPart::Third;
+                }
+            }
             dialog.error = None;
         }
         self.request_redraw();
@@ -894,7 +1110,9 @@ impl App {
             let host = target.as_str();
             let message = match after {
                 After::Restore => t!("workspace-remote-reconnecting", host = host),
-                After::Open | After::Browse => t!("workspace-remote-connecting", host = host),
+                After::Open | After::Browse | After::Upload => {
+                    t!("workspace-remote-connecting", host = host)
+                }
             };
             self.notify_pinned(message, NoticeAction::CancelConnect);
         }
@@ -1030,6 +1248,12 @@ impl App {
                 }
                 let home = winc_backend::native_lossy(&folder).into_owned();
                 self.open_remote_browser(target, home);
+            }
+            Ok(reached) if self.remote_enabled() && self.remote.after == After::Upload => {
+                let folder = reached.into_folder();
+                self.remote.lost = false;
+                let paths = self.remote.upload.take().unwrap_or_default();
+                self.start_upload(target, &folder, paths);
             }
             Ok(reached) if self.remote_enabled() => {
                 let folder = reached.into_folder();

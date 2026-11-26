@@ -6,6 +6,28 @@ use super::*;
 use crate::test_util::scratch;
 
 #[test]
+fn uploading_puts_items_in_the_directory_and_overwrites_names() {
+    let dir = scratch("paste-upload");
+    fs::create_dir_all(dir.join("src/kit")).unwrap();
+    fs::write(dir.join("src/a.txt"), "new").unwrap();
+    fs::write(dir.join("src/kit/b.txt"), "inner").unwrap();
+    fs::create_dir(dir.join("dst")).unwrap();
+    fs::write(dir.join("dst/a.txt"), "old").unwrap();
+    let outcome = upload_into(
+        &[dir.join("src/a.txt"), dir.join("src/kit")],
+        &dir.join("dst"),
+        &Copying::default(),
+    );
+    assert!(outcome.failed.is_none());
+    assert_eq!(outcome.done, [dir.join("dst/a.txt"), dir.join("dst/kit")]);
+    assert_eq!(fs::read_to_string(dir.join("dst/a.txt")).unwrap(), "new");
+    assert_eq!(
+        fs::read_to_string(dir.join("dst/kit/b.txt")).unwrap(),
+        "inner"
+    );
+}
+
+#[test]
 fn names_follow_the_numbered_and_copy_schemes() {
     let split = |name: &str| split_name(OsStr::new(name));
     assert_eq!(split("a.tar.gz"), ("a.tar".into(), ".gz".into()));

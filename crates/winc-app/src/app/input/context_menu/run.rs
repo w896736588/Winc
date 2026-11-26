@@ -508,6 +508,7 @@ impl App {
                 }
                 MenuCommand::Delete => self.ask_delete_all(self.tree_targets(), false),
                 MenuCommand::Download => self.pick(Pick::Download(self.tree_targets())),
+                MenuCommand::UploadSftp(index) => self.upload_sftp(index, self.tree_targets()),
                 MenuCommand::CopyPath => self.copy_paths(&selection, false),
                 MenuCommand::CopyRelativePath => self.copy_paths(&selection, true),
                 _ => {}
@@ -542,6 +543,7 @@ impl App {
             // 右键时已选中了那一行（空白处则取消选中），粘贴到的目录由选中的行决定。
             MenuCommand::Paste => self.paste_into_tree(),
             MenuCommand::Download => self.pick(Pick::Download(vec![target])),
+            MenuCommand::UploadSftp(index) => self.upload_sftp(index, vec![target]),
             _ => {}
         }
     }
@@ -597,6 +599,11 @@ impl App {
             MenuCommand::RemoveBookmark => self.set_bookmark(false),
             MenuCommand::ListBookmarks => self.list_bookmarks(),
             MenuCommand::CopyReference => self.copy_reference(false),
+            MenuCommand::UploadSftp(index) => {
+                if let Some(path) = self.editor.document(id).and_then(|doc| doc.path.clone()) {
+                    self.upload_sftp(index, vec![path]);
+                }
+            }
             _ => {}
         }
     }

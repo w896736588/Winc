@@ -248,6 +248,12 @@ pub enum UserEvent {
         winc_editor::paste::DownloadOutcome,
         Arc<winc_editor::Copying>,
     ),
+    /// 本机的各项已上传到远端：上传的结果、这次复制和主机（用于提示）。
+    Uploaded(
+        winc_editor::paste::UploadOutcome,
+        Arc<winc_editor::Copying>,
+        String,
+    ),
     /// 拖进文件树的文件和目录已在后台复制完成：各个副本的路径、复制失败的说明，以及这次复制。
     Copied(Vec<PathBuf>, Vec<String>, Arc<winc_editor::Copying>),
     /// 窗口已关闭时点击了程序坞中的图标（macOS）：重新显示窗口。
