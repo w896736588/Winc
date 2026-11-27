@@ -1408,3 +1408,65 @@ fn log_compares_with_a_revision_missing_from_the_list() {
     assert_eq!(compare.files.as_ref().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 日志分支面板顶部的搜索框实时过滤分支和标签。
+#[test]
+fn the_log_branch_search_filters_branches_and_tags() {
+    use crate::app::git::branch::picker::BranchRow;
+    use crate::app::git::log::LogTarget;
+
+    let Some((mut app, root)) = git_app("git-log-branch-search", false) else {
+        return;
+    };
+    history_repo(&root, 10);
+    app.git_refresh();
+    assert!(show_all_log(&mut app));
+    paint(&mut app);
+
+    let branch_names = |app: &App| -> Vec<String> {
+        app.log_branch_rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                BranchRow::Branch { index, .. } => {
+                    app.git.branches.get(index).map(|b| b.name.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let tags = |app: &App| -> usize {
+        app.log_branch_rows()
+            .iter()
+            .filter(|row| matches!(row, BranchRow::Tag(_)))
+            .count()
+    };
+    assert!(branch_names(&app).iter().any(|name| name == "main"));
+
+    // 点搜索框把焦点移过去，输入后只留下命中的分支，不再列「全部分支」。
+    app.press_log(LogTarget::BranchesSearch);
+    assert_eq!(app.focus, Focus::LogBranches);
+    app.edit_field(|f| f.insert("login"));
+    assert_eq!(branch_names(&app), ["feature/login"]);
+    assert!(!app.log_branch_rows().contains(&BranchRow::All));
+
+    // 标签同样按名字匹配：平时收起，搜索时展开列出。
+    app.edit_field(|f| {
+        f.set_text("v1.0");
+        true
+    });
+    assert!(branch_names(&app).is_empty());
+    assert_eq!(tags(&app), 1);
+
+    // 没有命中时列表为空；清空后恢复「全部分支」。
+    app.edit_field(|f| {
+        f.set_text("no-such-branch");
+        true
+    });
+    assert!(app.log_branch_rows().is_empty());
+    app.edit_field(|f| {
+        f.set_text("");
+        true
+    });
+    assert!(app.log_branch_rows().contains(&BranchRow::All));
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -86,35 +86,50 @@ impl App {
     /// 分支面板里的各行：最上面是「全部分支」，其余与分支选择器（不搜索时）相同，只是没有
     /// 「最近」一组（见 [`without_recent`]）。
     ///
+    /// 顶部的搜索框有文字时按名字过滤分支和标签：各组、目录全部展开，只留下命中的项，不再列出
+    /// 「全部分支」和「新建分支」。
+    ///
     /// 每帧都要用，分支很多（几千个远程分支）时分组、排序不便宜：按排它们用到的各项缓存，这几项
     /// 没变时直接用上次排好的。
     pub(crate) fn log_branch_rows(&self) -> Vec<BranchRow> {
+        use crate::app::input::palette::needle;
         let git = &self.git;
+        let text = self.git.log.branch_search.text().trim();
+        let query = needle(text);
+        let searching = !query.is_empty();
         let mut cache = self.git.log.branch_rows.borrow_mut();
         // 和上次的直接比较，不先复制一份：复制几千个分支和重排差不多一样费时。
-        if let Some(((b, r, f, t), rows)) = cache.as_ref()
+        if let Some(((b, r, f, t, q), rows)) = cache.as_ref()
             && *b == git.branches
             && *r == git.recent_branches
             && *f == git.branch_folders
             && *t == git.tags
+            && *q == text
         {
             return rows.clone();
         }
         let list = BranchList {
             branches: &git.branches,
             recent: &git.recent_branches,
-            query: &[],
+            query: &query,
             text: "",
             toggled: &git.branch_folders,
             tags: &git.tags,
         };
-        let mut rows = vec![BranchRow::All];
+        let mut rows = if searching {
+            Vec::new()
+        } else {
+            vec![BranchRow::All]
+        };
         rows.extend(without_recent(branch_rows(&list)));
+        // 日志里不新建分支：搜索时的「新建分支」一行没有用处。
+        rows.retain(|row| !matches!(row, BranchRow::Create(_)));
         let key = (
             git.branches.clone(),
             git.recent_branches.clone(),
             git.branch_folders.clone(),
             git.tags.clone(),
+            text.to_owned(),
         );
         *cache = Some((key, rows.clone()));
         rows
@@ -164,6 +179,10 @@ impl App {
     pub(super) fn toggle_log_branches(&mut self) {
         let from = self.log_branches_shown();
         let shown = !self.state.log_branches.unwrap_or(true);
+        // 收起面板时焦点不能留在看不见的搜索框里。
+        if !shown && self.focus == Focus::LogBranches {
+            self.focus = Focus::Editor;
+        }
         self.update_state(move |state| state.log_branches = Some(shown));
         let clock = self.clock(crate::app::animation::SIDEBAR_ANIMATION);
         self.git.log.branches_motion = clock.map(|clock| (from, clock));

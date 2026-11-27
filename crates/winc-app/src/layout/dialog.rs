@@ -123,13 +123,18 @@ impl DialogLayout {
         Self::form(window, location, options, 0)
     }
 
-    /// 计算推送对话框的几何：远程的菜单、目标分支的输入框，其下 `lines` 行待推送的提交，再往下
-    /// 是勾选项。
+    /// 计算推送对话框的几何：远程的菜单、目标分支的输入框，其下 `lines` 行待推送的提交和改动，
+    /// 再往下是勾选项。
     ///
     /// 版式与 [`DialogLayout::compute`] 相同，只是菜单在上、输入框在下；提交列表在 `message`，
-    /// 它的名称是 `labels` 的最后一项。
+    /// 它的名称是 `labels` 的最后一项。列表放不下时只占窗口内放得下的行数，其余滚动查看，卡片
+    /// 不超出窗口。
     pub fn push(window: Rect, lines: usize, options: &[DialogPart]) -> Self {
-        let mut layout = Self::form(window, false, options, lines);
+        let room = (window.h - Self::form(window, false, options, 0).card.h - DIALOG_GAP
+            - SETTINGS_MARGIN)
+            .max(0.0);
+        let max = ((room / QUESTION_LINE_H).floor() as usize).max(1);
+        let mut layout = Self::form(window, false, options, lines.min(max));
         std::mem::swap(&mut layout.branch, &mut layout.base);
         layout
     }

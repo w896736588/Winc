@@ -231,6 +231,24 @@ fn rename_in_the_tree_moves_open_documents() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 鼠标在资源管理器里选中文件后按 `F2`：原地开始重命名，选中扩展名之前的部分。
+#[test]
+fn f2_starts_renaming_the_file_selected_with_the_mouse() {
+    let dir = search_folder("tree-f2-rename");
+    let mut app = app_with(&dir, false);
+    paint(&mut app);
+    let main = row_of(&app, "Cargo.toml");
+    let at = tree_row_center(&app, main);
+    click(&mut app, at);
+    assert_eq!(app.focus, Focus::Tree);
+    assert!(app.run_action(crate::keymap::Action::RenameFile));
+    let entry = app.panels.name_input.as_ref().unwrap();
+    assert_eq!(entry.field.text(), "Cargo.toml");
+    assert_eq!(entry.field.selected_text(), "Cargo");
+    app.close_name_input();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn delete_from_the_tree_closes_clean_tabs_and_keeps_dirty_ones() {
     let dir = search_folder("ctx-delete");

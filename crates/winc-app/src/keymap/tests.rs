@@ -209,6 +209,34 @@ fn runs(os: Os, mods: Mods, key: KeyCode, context: Context) -> Option<Action> {
 }
 
 #[test]
+fn f2_renames_the_file_selected_in_the_tree() {
+    let f2 = |preset: Preset, os: Os| {
+        let found = lookup(
+            &preset.bindings(os),
+            Stroke {
+                key: KeyCode::F(2),
+                mods: Mods::NONE,
+            },
+            None,
+            Context::Tree,
+        );
+        match found {
+            Lookup::Run(actions) => actions.first().copied(),
+            _ => None,
+        }
+    };
+    // IDEA 方案里 ⇧F6 是重命名，F2 与它相同；编辑区里的 F2 仍是编辑提交说明。
+    for os in ALL_OS {
+        assert_eq!(f2(Preset::Idea, os), Some(Action::RenameFile), "{os:?}");
+    }
+    // VS Code 方案在 Windows、Linux 上同样是 F2，macOS 上沿用回车。
+    for os in [Os::Windows, Os::Linux] {
+        assert_eq!(f2(Preset::VsCode, os), Some(Action::RenameFile), "{os:?}");
+    }
+    assert_eq!(f2(Preset::VsCode, Os::Mac), None);
+}
+
+#[test]
 fn no_two_bindings_fight_over_a_key() {
     for (os, preset) in ALL_OS
         .into_iter()

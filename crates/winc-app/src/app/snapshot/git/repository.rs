@@ -546,8 +546,7 @@ fn a_folder_without_a_repository_offers_to_initialize_one() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 推送对话框列出会送出的提交：最新的在前，超过上限的只列最新的几个并记下总数；远程和目标
-/// 分支先填上游。
+/// 推送对话框列出会送出的提交：最新的在前，全部列出；远程和目标分支先填上游。
 #[test]
 fn the_push_confirmation_lists_the_commits_it_will_send() {
     use crate::app::git::commit::PushIntent;
@@ -589,17 +588,64 @@ fn the_push_confirmation_lists_the_commits_it_will_send() {
     assert_eq!(dialog.focus, DialogPart::Confirm);
     app.close_form_dialog();
 
-    // 提交很多时只列最新的几个，最后一行写明其余的个数，两者加起来是全部。
+    // 提交很多时同样全部列出，最新的在前。
     for i in 0..20 {
         commit(&format!("第 {i} 个"));
     }
     app.git_refresh();
     app.ask_push(PushIntent::Push);
     let shown = form(&app);
-    let listed = shown.subjects.len();
-    assert!(listed > 0 && listed < 22, "{listed}");
+    assert_eq!(shown.subjects.len(), 22);
     assert_eq!(shown.subjects[0], "第 19 个");
-    assert_eq!((shown.total, shown.lines()), (22, listed + 1));
+    assert_eq!((shown.total, shown.lines()), (22, 22));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 推送对话框在提交下面列出这些提交改过的文件：状态和相对仓库根目录的路径，同一文件只列
+/// 一次、按最新的提交里的状态。
+#[test]
+fn the_push_dialog_lists_the_files_it_will_send() {
+    use crate::app::git::commit::PushIntent;
+    use winc_editor::git::Change;
+    let dir = sample_folder("git-push-files");
+    let Some(work) = repo_with_remote(&dir) else {
+        return;
+    };
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&work)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}");
+    };
+    std::fs::write(work.join("a.txt"), "一\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "改文件"]);
+    std::fs::write(work.join("a.txt"), "二\n").unwrap();
+    std::fs::write(work.join("b.txt"), "b\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "再加一处"]);
+
+    let Some(mut app) = git_app(&work) else {
+        return;
+    };
+    app.git_refresh();
+    app.ask_push(PushIntent::Push);
+    let FormKind::Transfer(form) = &app.overlays.form_dialog.as_ref().unwrap().kind else {
+        panic!("不是推送对话框");
+    };
+    assert_eq!(form.subjects, ["再加一处", "改文件"]);
+    assert_eq!(
+        form.files,
+        [
+            (Change::Modified, "a.txt".to_owned()),
+            (Change::Added, "b.txt".to_owned()),
+        ]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

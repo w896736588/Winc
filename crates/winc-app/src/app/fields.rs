@@ -31,6 +31,7 @@ impl App {
             Focus::KeySearch => Some(&mut self.settings.keys_query),
             Focus::SettingsSearch => Some(&mut self.settings.search),
             Focus::LogFilter => Some(&mut self.git.log.filter),
+            Focus::LogBranches => Some(&mut self.git.log.branch_search),
             Focus::Dialog => self.overlays.form_dialog.as_mut().map(|d| match d.focus {
                 crate::layout::DialogPart::Second => &mut d.second,
                 crate::layout::DialogPart::Third => &mut d.third,
@@ -72,6 +73,11 @@ impl App {
                 Focus::Picker => self.picker_refresh(),
                 Focus::Setting => self.settings_live_font(),
                 Focus::LogFilter => self.log_filter_changed(),
+                // 分支列表变短，滚动位置回到顶部。
+                Focus::LogBranches => {
+                    self.git.log.branches_scroll = 0.0;
+                    self.git.log.branch_fold = None;
+                }
                 Focus::TerminalFind => self.terminal_find_changed(),
                 Focus::SettingsSearch => self.settings_search_changed(),
                 Focus::Dialog => self.refresh_transfer_list(),

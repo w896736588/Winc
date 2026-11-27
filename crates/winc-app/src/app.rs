@@ -478,6 +478,8 @@ pub enum Focus {
     Outline,
     /// 日志标签标题栏的筛选输入框。
     LogFilter,
+    /// 日志标签左侧分支面板顶部的分支名搜索输入框。
+    LogBranches,
     /// 功能对话框（新建工作树）里的输入框。
     Dialog,
 }

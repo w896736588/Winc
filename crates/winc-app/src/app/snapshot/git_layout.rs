@@ -329,3 +329,85 @@ fn a_branch_that_tracks_another_branch_publishes_to_its_own_name() {
     assert_eq!(app.push_intent(), Some(PushIntent::Push));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 提交视图标题行在「Git 日志」左边显示拉取、获取、推送三个按钮；日志的分支面板顶部是分支名
+/// 搜索框，搜索实时过滤分支和标签。
+#[test]
+fn the_commit_header_has_sync_buttons_and_the_branch_search_filters_the_list() {
+    use crate::app::git::branch::picker::BranchRow;
+    use crate::app::git::log::BRANCHES_SEARCH_H;
+    use winc_editor::git::Branch;
+
+    let dir = sample_folder("git-log-branch-search");
+    let mut app = app_with(&dir, false);
+    let branch = |name: &str, remote: bool, current: bool| Branch {
+        name: name.to_owned(),
+        remote,
+        current,
+        upstream: None,
+        gone: false,
+        oid: String::new(),
+        time: 0,
+        local: String::new(),
+        ahead: 0,
+        behind: 0,
+    };
+    app.git.branches = vec![
+        branch("main", false, true),
+        branch("feature/login", false, false),
+        branch("origin/main", true, false),
+    ];
+    app.git.tags = vec!["v1.0".to_owned()];
+
+    // 拉取、获取、推送三个按钮在「Git 日志」按钮左边，互相之间不重叠；搜索框在分支面板顶部。
+    let parts = app.commit_parts();
+    let sync = parts.sync.expect("默认宽度下应显示拉取、获取、推送按钮");
+    assert!(sync[0].right() <= sync[1].x);
+    assert!(sync[1].right() <= sync[2].x);
+    assert!(sync[2].right() < parts.tools[0].0.x);
+    assert_eq!(app.log_parts().branches_search().h, BRANCHES_SEARCH_H);
+
+    // 侧栏收窄到最小宽度时不画同步按钮，把宽度留给项目名。
+    app.panels.sidebar.width = crate::theme::MIN_PANEL_WIDTH;
+    paint(&mut app);
+    assert!(app.commit_parts().sync.is_none());
+    app.panels.sidebar.width = crate::theme::DEFAULT_PANEL_WIDTH;
+    paint(&mut app);
+
+    // 不搜索时最上面是「全部分支」。
+    assert_eq!(app.log_branch_rows().first(), Some(&BranchRow::All));
+
+    let branch_names = |app: &App| -> Vec<String> {
+        app.log_branch_rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                BranchRow::Branch { index, .. } => {
+                    app.git.branches.get(index).map(|b| b.name.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(branch_names(&app).iter().any(|name| name == "main"));
+
+    // 输入分支名的一部分只留下命中的分支，拉取、获取、推送之外的「全部分支」不再列出。
+    app.git.log.branch_search.set_text("login");
+    assert_eq!(branch_names(&app), ["feature/login"]);
+    assert!(!app.log_branch_rows().contains(&BranchRow::All));
+
+    // 标签同样按名字过滤，并且搜索时展开列出。
+    app.git.log.branch_search.set_text("v1.0");
+    assert!(branch_names(&app).is_empty());
+    assert!(
+        app.log_branch_rows()
+            .iter()
+            .any(|row| matches!(row, BranchRow::Tag(_)))
+    );
+
+    // 没有命中时列表为空，清空后恢复「全部分支」。
+    app.git.log.branch_search.set_text("no-such-branch");
+    assert!(app.log_branch_rows().is_empty());
+    app.git.log.branch_search.set_text("");
+    assert_eq!(app.log_branch_rows().first(), Some(&BranchRow::All));
+    let _ = std::fs::remove_dir_all(&dir);
+}

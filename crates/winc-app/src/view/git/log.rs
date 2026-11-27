@@ -28,8 +28,9 @@ use winc_render::Stroke;
 
 use crate::app::Focus;
 use crate::app::git::log::{
-    AUTHOR_PAD, LOG_FILTER_GAP, LOG_LIST_PAD, LogColumn, LogParts, LogPill, LogTarget, TextRun,
-    details_top, display_time, is_relative_time, list_time, log_author_width, short, since_label,
+    AUTHOR_PAD, BRANCHES_SEARCH_H, LOG_FILTER_GAP, LOG_LIST_PAD, LogColumn, LogParts, LogPill,
+    LogTarget, TextRun, details_top, display_time, is_relative_time, list_time, log_author_width,
+    short, since_label,
 };
 use crate::app::{StatusEntry, StatusRow};
 use crate::icons::Direction;
@@ -115,6 +116,10 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     app.sync_log_filter();
     let search = draw_search(app, frame, &parts);
     hits.push((search, LogTarget::Search));
+    // 分支面板的搜索框同样先单独绘制，分支各行从它下方开始。
+    if let Some(branch_search) = draw_branch_search(app, frame, &parts) {
+        hits.push((branch_search, LogTarget::BranchesSearch));
+    }
     let pills = match app.editor.documents[index].log.as_deref() {
         Some(view) => {
             // 放不下时各下拉只写名字（见 `draw_header`）。
@@ -174,10 +179,9 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     app.git.log.branches_max = branches_max;
     app.git.log.branches_scroll = app.git.log.branches_scroll.min(branches_max);
     app.git.log.long_branches = long_branches;
-    // 分支面板的滚动条贴在面板右边，与侧栏各列表相同。
-    let panel = parts.branches;
-    if panel.w > 0.0 {
-        let track = Rect::new(panel.x, panel.y, panel.w - 1.0, panel.h);
+    // 分支面板的滚动条贴在面板右边、搜索框下方，与侧栏各列表相同。
+    let panel = parts.branches_rows();
+    if panel.w > 0.0 && panel.h > 0.0 {
         let scroll = app.git.log.branches_scroll;
         let content = branches_max + panel.h;
         draw_scrollbar(
@@ -185,7 +189,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
             frame,
             ScrollArea::LogBranches,
             0,
-            track,
+            panel,
             scroll,
             content,
         );

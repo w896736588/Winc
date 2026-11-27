@@ -308,6 +308,7 @@ git-push-form-title-upto = 推送 { $branch } 截至 { $commit } 的提交
 git-push-form-remote = 远程
 git-push-form-branch = 分支
 git-push-form-commits = 提交
+git-push-form-changes = 改动 { $count } 个文件
 git-push-form-tags = 推送标签
 git-push-form-tags-hint = 本地的全部标签
 git-push-form-pushing = 正在推送…

@@ -55,8 +55,10 @@ pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
 
 /// 绘制提交视图：标题行左边是上下文栏，右端是工具按钮，下面是工作区的改动。
 fn draw_commit_view(app: &mut App, frame: &mut Frame<'_>) {
-    // 项目栏的右端在工具按钮之前；上下文栏自己会在右边留出 4 的间距。
-    let right = app.commit_parts().tools[0].0.x - 4.0;
+    // 项目栏的右端在工具按钮之前（放了同步按钮时在它们左边）；上下文栏自己会在右边留出 4 的
+    // 间距。
+    let parts = app.commit_parts();
+    let right = parts.sync.map_or(parts.tools[0].0.x, |sync| sync[0].x) - 4.0;
     let bar = ContextBar::new(app, frame);
     draw_context_bar(app, frame, &bar, right);
     if let Some(caret) = git::commit::draw_commit(app, frame) {

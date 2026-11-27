@@ -220,11 +220,51 @@ impl Git {
         head: &str,
         limit: usize,
     ) -> Result<(Vec<String>, usize), String> {
+        let range = self.outgoing_range(root, target, head)?;
+        self.subjects(root, &range, limit)
+    }
+
+    /// 返回把 `head` 推送到 `target` 会送出的改动：这些提交改过的文件，按路径去重（同一文件在
+    /// 几个提交里改过时取最新的那个提交里的状态），最新的提交改的在前。
+    ///
+    /// 路径是相对仓库根目录的写法。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Git::outgoing`] 相同。
+    pub fn outgoing_files(
+        &self,
+        root: &Path,
+        target: Outgoing<'_>,
+        head: &str,
+    ) -> Result<Vec<(Change, String)>, String> {
+        let range = self.outgoing_range(root, target, head)?;
+        let mut command = self.command(root);
+        command.args([
+            "log",
+            "--no-show-signature",
+            "--format=",
+            "-z",
+            "--name-status",
+        ]);
+        command.args(&range);
+        let stdout = self.run(&mut command, LOG_TIMEOUT, &Cancel::default())?;
+        Ok(parse_name_status(&stdout))
+    }
+
+    /// 返回 `git log` 的参数中表示「`head` 相对推送目标多出的提交」的范围；`target` 的目标分支
+    /// 在本地还没有记录时，是该远程名下的任何分支都没有的提交。
+    fn outgoing_range(
+        &self,
+        root: &Path,
+        target: Outgoing<'_>,
+        head: &str,
+    ) -> Result<Vec<String>, String> {
         if head.starts_with('-') {
             return Err(winc_i18n::t!("git-rebase-not-on-branch").to_owned());
         }
         let cancel = Cancel::default();
-        let range: Vec<String> = match target {
+        Ok(match target {
             Outgoing::Upstream => vec![format!("@{{upstream}}..{head}")],
             Outgoing::Publish => [head, "--not", "--remotes"].map(String::from).into(),
             Outgoing::To { remote, branch } => {
@@ -240,8 +280,7 @@ impl Git {
                     Err(_) => vec![head.into(), "--not".into(), format!("--remotes={remote}")],
                 }
             }
-        };
-        self.subjects(root, &range, limit)
+        })
     }
 
     /// 返回拉取远程 `remote` 的分支 `branch` 时会带来的提交：最新的至多 `limit` 个提交的标题
@@ -267,7 +306,8 @@ impl Git {
         self.subjects(root, &[format!("HEAD..{tracking}")], limit)
     }
 
-    /// 返回 `range` 中最新的至多 `limit` 个提交的标题（最新的在前）和提交总数。
+    /// 返回 `range` 中最新的至多 `limit` 个提交的标题（最新的在前）和提交总数；`limit` 为
+    /// `usize::MAX` 时不限条数，全部列出。
     fn subjects(
         &self,
         root: &Path,
@@ -280,10 +320,13 @@ impl Git {
         let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
         let total = String::from_utf8_lossy(&stdout).trim().parse().unwrap_or(0);
         let mut command = self.command(root);
-        let count = format!("--max-count={limit}");
         // `log.showSignature` 等配置会在标题之间插入签名校验的输出，这里关掉。
-        let args = ["log", "--no-show-signature", "--format=%s", &count];
-        command.args(args).args(range);
+        command.args(["log", "--no-show-signature", "--format=%s"]);
+        // `--max-count` 按 32 位整数解析，不能传 `usize::MAX`；不限条数时不写这个参数。
+        if limit != usize::MAX {
+            command.arg(format!("--max-count={limit}"));
+        }
+        command.args(range);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
         let subjects = String::from_utf8_lossy(&stdout);
         Ok((subjects.lines().map(str::to_owned).collect(), total))
@@ -401,6 +444,47 @@ impl Git {
 
 #[cfg(test)]
 mod tests;
+
+/// 解析 `git log --format= --name-status -z` 的输出：状态字母和路径以空字节分隔，改名、复制时
+/// 后面跟两个路径（旧、新）。同一路径出现多次时保留第一次（最新的提交）的状态，顺序也按第一次
+/// 出现的位置。状态字母前可能有一个换行（`--format=` 与各条记录之间的分隔），不是路径的一部分。
+fn parse_name_status(output: &[u8]) -> Vec<(Change, String)> {
+    let mut files: Vec<(Change, String)> = Vec::new();
+    let mut seen: std::collections::HashMap<String, ()> = std::collections::HashMap::new();
+    let mut tokens = output.split(|byte| *byte == 0);
+    while let Some(token) = tokens.next() {
+        let status = String::from_utf8_lossy(token);
+        let status = status.trim_start_matches('\n');
+        // 记录之间可能有空项；没有状态字母的项不是文件。
+        let Some(letter) = status.as_bytes().first().copied() else {
+            continue;
+        };
+        let change = match letter {
+            b'R' => Change::Renamed,
+            // 复制过来的文件在目标侧是新出现的。
+            b'C' | b'A' => Change::Added,
+            b'D' => Change::Deleted,
+            b'U' => Change::Conflicted,
+            _ => Change::Modified,
+        };
+        // 改名、复制后面跟旧路径和新路径；其余只有一个路径。
+        let path = match letter {
+            b'R' | b'C' => {
+                let _old = tokens.next();
+                tokens.next()
+            }
+            _ => tokens.next(),
+        };
+        let Some(path) = path else {
+            break;
+        };
+        let path = String::from_utf8_lossy(path).into_owned();
+        if !path.is_empty() && seen.insert(path.clone(), ()).is_none() {
+            files.push((change, path));
+        }
+    }
+    files
+}
 
 /// 从 `git config -z --get-regexp` 的输出 `config` 中找出当前分支 `branch` 推送时要写明的
 /// （远程，上游的引用）：上游与当前分支同名、设置了 `push.default`，或推送去的远程

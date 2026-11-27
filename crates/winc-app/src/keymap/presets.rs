@@ -277,7 +277,13 @@ pub(super) const IDEA: &[PresetRow] = &[
         &["shift+cmd+s"],
         &["ctrl+shift+s"],
     ),
-    row(RenameFile, Tree, &["shift+f6"], &["shift+f6"]),
+    // `⇧F6` 是 IDEA 的重命名；`F2` 与之相同（VS Code 也用 F2 重命名文件树里选中的文件）。
+    row(
+        RenameFile,
+        Tree,
+        &["shift+f6", "f2"],
+        &["shift+f6", "f2"],
+    ),
     row(
         DeleteFile,
         Tree,

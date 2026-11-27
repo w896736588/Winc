@@ -20,6 +20,19 @@ impl App {
             (tool(1), CommitTarget::Refresh),
             (tool(2), CommitTarget::More),
         ];
+        // 「Git 日志」左边空出来的地方放拉取、获取、推送；侧栏太窄时留给项目名，不画。
+        let cluster = 3.0 * SYNC_TOOL + 2.0 * SYNC_GAP;
+        let left = tools[0].0.x - SYNC_TOOL_GAP - cluster;
+        let sync = (left >= header.x + 8.0 + SYNC_MIN_NAME).then(|| {
+            std::array::from_fn(|i| {
+                Rect::new(
+                    left + i as f32 * (SYNC_TOOL + SYNC_GAP),
+                    header.y + (header.h - SYNC_TOOL) / 2.0,
+                    SYNC_TOOL,
+                    SYNC_TOOL,
+                )
+            })
+        });
         let inner_x = panel.x + MARGIN;
         let inner_w = (panel.w - 2.0 * MARGIN).max(0.0);
 
@@ -80,6 +93,7 @@ impl App {
         CommitParts {
             header,
             tools,
+            sync,
             location,
             branch,
             banner,

@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError};
 
-use winc_editor::git::unique_dir;
+use winc_editor::git::{Change, unique_dir};
 use winc_i18n::t;
 
 use super::branch::local_name;
@@ -23,7 +23,7 @@ use crate::askpass::Prompt;
 use crate::layout::{DialogLayout, DialogPart};
 
 /// 表单对话框是哪一种。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FormKind {
     /// 新建工作树：分支、基于、位置，复制被忽略的文件、在新窗口中打开。
     Worktree,
@@ -67,7 +67,7 @@ pub(crate) enum Direction {
 }
 
 /// 推送或拉取对话框打开时的内容。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TransferForm {
     /// 推送还是拉取。
     pub direction: Direction,
@@ -77,10 +77,15 @@ pub(crate) struct TransferForm {
     pub remote: String,
     /// 默认的远程分支：上游的分支名，没有上游时与当前分支同名。
     pub target: String,
-    /// 会送出（推送）或带来（拉取）的提交的标题，最新的在前；提交多时只有最新的几个。
+    /// 会送出（推送）或带来（拉取）的提交的标题，最新的在前；推送时是全部提交，拉取时提交多
+    /// 时只有最新的几个。
     pub subjects: Vec<String>,
     /// 会送出或带来的提交数。
     pub total: usize,
+    /// 会送出（推送）的改动：各文件的变动和相对仓库根目录的路径；拉取时为空。
+    pub files: Vec<(Change, String)>,
+    /// 提交列表的滚动位置（逻辑像素）：列表比框高时用滚轮查看下面的内容。
+    pub scroll: f32,
     /// 提交列表按哪个目标读出（远程、分支）；改了目标以后在后台重读，读到时换上。
     pub read_for: (String, String),
     /// 提交列表占的行数：打开以来最多的一次，改目标时对话框不忽高忽低。
@@ -90,15 +95,20 @@ pub(crate) struct TransferForm {
 }
 
 impl TransferForm {
-    /// 提交列表占几行：每个标题一行，没有列出的提交另占一行；没有待推送的提交时是一行说明。
+    /// 提交列表占几行：每个标题一行，没有列出的提交另占一行；推送时下面还列出改动的文件
+    /// （中间空一行，再一行说明共几个文件）。没有内容时是一行说明。
     pub(crate) fn lines(&self) -> usize {
         let more = usize::from(self.total > self.subjects.len());
-        (self.subjects.len() + more).max(1)
+        let changes = match self.files.is_empty() {
+            true => 0,
+            false => 2 + self.files.len(),
+        };
+        (self.subjects.len() + more + changes).max(1)
     }
 }
 
-/// 推送或拉取对话框改了目标后在后台读到的提交：读的目标（远程、分支）、标题和总数。
-pub(crate) type TransferCommits = ((String, String), Vec<String>, usize);
+/// 推送或拉取对话框改了目标后在后台读到的提交：读的目标（远程、分支）、标题、总数和改动。
+pub(crate) type TransferCommits = ((String, String), Vec<String>, usize, Vec<(Change, String)>);
 
 impl FormKind {
     /// 返回使用询问对话框版式的表单的内容；其他表单返回 `None`。
@@ -191,7 +201,8 @@ impl App {
         self.open_form_dialog(FormKind::Branch { at }, from);
     }
 
-    /// 打开推送对话框：`subjects` 是待推送的提交的标题，`total` 是提交数。
+    /// 打开推送对话框：`subjects` 是待推送的提交的标题，`total` 是提交数，`files` 是这些提交
+    /// 改过的文件。
     ///
     /// 远程和目标分支先填上游（发布时是选出的远程和同名分支），键盘焦点在主按钮上，回车即推送。
     pub(in crate::app) fn open_push_dialog(
@@ -199,6 +210,7 @@ impl App {
         intent: PushIntent,
         subjects: Vec<String>,
         total: usize,
+        files: Vec<(Change, String)>,
     ) {
         if self.overlays.form_dialog.is_some() {
             return;
@@ -209,7 +221,7 @@ impl App {
             (_, Some(tracked)) => tracked,
             (_, None) => (String::new(), branch.clone()),
         };
-        let commits = Some((subjects, total));
+        let commits = Some((subjects, total, files));
         self.show_transfer_dialog(Direction::Push(intent), branch, (remote, target), commits);
     }
 
@@ -250,19 +262,19 @@ impl App {
     }
 
     /// 显示推送或拉取对话框：默认的目标是 `(remote, target)`，`commits` 是已按它读到的提交
-    /// （标题、总数），`None` 时尚未读；键盘焦点在主按钮上，回车即执行。
+    /// （标题、总数、改动），`None` 时尚未读；键盘焦点在主按钮上，回车即执行。
     fn show_transfer_dialog(
         &mut self,
         direction: Direction,
         branch: String,
         (remote, target): (String, String),
-        commits: Option<(Vec<String>, usize)>,
+        commits: Option<(Vec<String>, usize, Vec<(Change, String)>)>,
     ) {
         let read_for = match commits {
             Some(_) => (remote.clone(), target.clone()),
             None => Default::default(),
         };
-        let (subjects, total) = commits.unwrap_or_default();
+        let (subjects, total, files) = commits.unwrap_or_default();
         let mut name = ref_name_field();
         name.set_text(&target);
         name.set_caret(target.len(), false);
@@ -273,6 +285,8 @@ impl App {
             target,
             subjects,
             total,
+            files,
+            scroll: 0.0,
             read_for,
             rows: 0,
             upto: None,
@@ -1065,6 +1079,8 @@ impl App {
         ) else {
             return;
         };
+        // 目标换了，原来滚到的位置对新内容没有意义。
+        form.scroll = 0.0;
         self.spawn_git(UserEvent::GitStatus, move |tool| {
             let (remote, branch) = &wanted;
             let target = match (&direction, default) {
@@ -1074,11 +1090,23 @@ impl App {
                 (Direction::Push(_), false) => Some(Outgoing::To { remote, branch }),
             };
             let read = tool.ok().map(|git| match target {
-                Some(target) => git.outgoing(&root, target, &head, PUSH_PREVIEW),
-                None => git.incoming(&root, remote, branch, PUSH_PREVIEW),
+                Some(target) => {
+                    // 推送列出全部提交和改动；拉取只列最新的几个。
+                    let (subjects, total) = git
+                        .outgoing(&root, target, &head, usize::MAX)
+                        .unwrap_or_default();
+                    let files = git.outgoing_files(&root, target, &head).unwrap_or_default();
+                    (subjects, total, files)
+                }
+                None => {
+                    let (subjects, total) = git
+                        .incoming(&root, remote, branch, PUSH_PREVIEW)
+                        .unwrap_or_default();
+                    (subjects, total, Vec::new())
+                }
             });
-            let (subjects, total) = read.and_then(Result::ok).unwrap_or_default();
-            let read = Some((wanted.clone(), subjects, total));
+            let (subjects, total, files) = read.unwrap_or_default();
+            let read = Some((wanted.clone(), subjects, total, files));
             *slot.lock().unwrap_or_else(PoisonError::into_inner) = read;
         });
         // 没有事件循环（测试中）时后台的工作已经就地做完：直接取用。
@@ -1090,7 +1118,7 @@ impl App {
         let read = (self.git.transfer_commits.lock())
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        let Some((target, subjects, total)) = read else {
+        let Some((target, subjects, total, files)) = read else {
             return;
         };
         let dialog = self.overlays.form_dialog.as_mut();
@@ -1100,9 +1128,27 @@ impl App {
         if form.read_for == target {
             form.subjects = subjects;
             form.total = total;
+            form.files = files;
             form.rows = form.rows.max(form.lines());
             self.request_redraw();
         }
+    }
+
+    /// 滚轮在推送、拉取对话框上滚动 `dy`（逻辑像素，向下滚动为负）：滚动提交和改动的列表，
+    /// 内容比框高时才移动。
+    pub(in crate::app) fn transfer_wheel(&mut self, dy: f32) {
+        let visible = self.dialog_layout().message.h;
+        let Some(FormKind::Transfer(form)) = self
+            .overlays
+            .form_dialog
+            .as_mut()
+            .map(|dialog| &mut dialog.kind)
+        else {
+            return;
+        };
+        let content = form.lines() as f32 * crate::layout::QUESTION_LINE_H;
+        form.scroll = (form.scroll - dy).clamp(0.0, (content - visible).max(0.0));
+        self.request_redraw();
     }
 
     /// 推送、拉取对话框的远程菜单里第 `i` 个远程是不是现在选的。

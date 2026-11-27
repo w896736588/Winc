@@ -60,6 +60,8 @@ pub(crate) fn log_title() -> &'static str {
 pub(crate) const LOG_HEADER: f32 = 36.0;
 /// 筛选输入框与分支按钮之间的间距（逻辑像素）。
 pub(crate) const LOG_FILTER_GAP: f32 = 8.0;
+/// 分支面板顶部搜索输入框的高度（逻辑像素）。
+pub(crate) const BRANCHES_SEARCH_H: f32 = 26.0;
 /// 详情一栏的最小宽度与最大宽度（逻辑像素）。
 ///
 /// 取自调参：300 可容纳提交说明和文件名；宽于 520 时提交列表过窄。拖动分隔线后不受上限
@@ -143,6 +145,31 @@ impl LogParts {
             header.y + (header.h - 24.0) / 2.0,
             24.0,
             24.0,
+        )
+    }
+
+    /// 分支面板顶部的分支名搜索输入框；面板没有打开或放不下时宽度为 0。
+    pub(crate) fn branches_search(&self) -> Rect {
+        let branches = self.branches;
+        let width = (branches.w - 17.0).max(0.0);
+        Rect::new(
+            branches.x + 8.0,
+            branches.y + LOG_LIST_PAD,
+            width,
+            BRANCHES_SEARCH_H,
+        )
+    }
+
+    /// 分支面板中搜索输入框下方的各行区域。
+    pub(crate) fn branches_rows(&self) -> Rect {
+        let search = self.branches_search();
+        let branches = self.branches;
+        let top = search.bottom() + LOG_LIST_PAD;
+        Rect::new(
+            branches.x,
+            top,
+            (branches.w - 1.0).max(0.0),
+            (branches.bottom() - top).max(0.0),
         )
     }
 
@@ -252,6 +279,8 @@ pub enum LogTarget {
     BranchRow(usize),
     /// 标题栏的「清除筛选」。
     ClearFilters,
+    /// 分支面板顶部的分支名搜索输入框。
+    BranchesSearch,
     /// 列表与详情之间的分隔线：左右拖动改变详情一栏的宽度，双击恢复默认宽度。
     Divider,
     /// 分支面板的右边缘：左右拖动改变面板的宽度，双击恢复默认宽度。
@@ -457,6 +486,8 @@ pub(crate) struct LogState {
     ///
     /// 所有日志标签共用一个输入框，切换标签时换为该标签的筛选文字。
     pub filter: TextField,
+    /// 分支面板顶部的分支名搜索输入框：只过滤左侧的分支列表，不改日志的筛选条件。
+    pub branch_search: TextField,
     /// 作者菜单中列出的作者，弹出菜单时从已读取的提交中收集；菜单项按下标对应。
     pub authors: Vec<String>,
     /// `authors` 是哪个日志标签的：按作者筛选时只沿用同一个标签上次的名单。
@@ -532,7 +563,7 @@ pub(crate) struct LogState {
     /// 淡入，与状态栏右侧各项相同。
     pub(crate) pills: crate::app::StatusMotion<LogPill>,
     /// 分支面板各行的缓存（见 [`App::log_branch_rows`]）：排它们用的分支、最近的分支、收起的
-    /// 组和目录、标签，以及排好的各行。
+    /// 组和目录、标签、搜索文字，以及排好的各行。
     #[allow(clippy::type_complexity, reason = "缓存键就是这几项，单独起名反而难懂")]
     pub(super) branch_rows: std::cell::RefCell<
         Option<(
@@ -541,6 +572,7 @@ pub(crate) struct LogState {
                 Vec<String>,
                 HashSet<(bool, String)>,
                 Vec<String>,
+                String,
             ),
             Vec<BranchRow>,
         )>,
@@ -629,6 +661,7 @@ impl Default for LogState {
         LogState {
             results: channel(),
             filter: TextField::default(),
+            branch_search: TextField::default(),
             authors: Vec::new(),
             authors_of: None,
             paths: Vec::new(),
@@ -1101,6 +1134,11 @@ impl App {
             }
             LogTarget::Search => {
                 self.focus = Focus::LogFilter;
+                let (x, y) = self.pointer.mouse;
+                self.click_field(x, y);
+            }
+            LogTarget::BranchesSearch => {
+                self.focus = Focus::LogBranches;
                 let (x, y) = self.pointer.mouse;
                 self.click_field(x, y);
             }

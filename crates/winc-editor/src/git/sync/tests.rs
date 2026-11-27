@@ -392,3 +392,18 @@ fn a_differently_named_upstream_is_pushed_to_explicitly() {
         sh(&work, &["rev-parse", "HEAD"])
     );
 }
+
+/// `--name-status -z` 的输出：状态和路径成对出现，改名后面跟旧、新两个路径；同一文件在几个
+/// 提交里改过时只保留第一次（最新的提交）的状态。
+#[test]
+fn name_status_lists_each_file_once_with_the_newest_status() {
+    let output = b"\nM\0src/a.rs\0A\0docs/b.md\0R100\0old.rs\0new.rs\0M\0src/a.rs\0";
+    assert_eq!(
+        parse_name_status(output),
+        [
+            (Change::Modified, "src/a.rs".to_owned()),
+            (Change::Added, "docs/b.md".to_owned()),
+            (Change::Renamed, "new.rs".to_owned()),
+        ]
+    );
+}

@@ -7,7 +7,7 @@ use winc_editor::git::{Outgoing, RebaseAction, RebasePlan, RebaseStep};
 use winc_i18n::t;
 
 use super::branch::Then;
-use super::commit::{PUSH_PREVIEW, PushIntent};
+use super::commit::PushIntent;
 use super::form::FormKind;
 use super::log::{LogConfirmed, short};
 use crate::app::{App, NoticeKind};
@@ -35,7 +35,7 @@ pub(in crate::app) enum Loaded {
     Drop(RebasePlan),
     /// 修正（`false`）或压缩（`true`）到此提交的范围：打开提交卡片。
     Into(RebasePlan, bool),
-    /// 推送到提交 `oid` 为止：打开推送对话框，列出会送出的提交。
+    /// 推送到提交 `oid` 为止：打开推送对话框，列出会送出的提交和改动。
     PushUpTo {
         /// 推送还是发布。
         intent: PushIntent,
@@ -45,6 +45,8 @@ pub(in crate::app) enum Loaded {
         subjects: Vec<String>,
         /// 会送出的提交数。
         total: usize,
+        /// 会送出的改动：状态和相对仓库根目录的路径。
+        files: Vec<(winc_editor::git::Change, String)>,
     },
 }
 
@@ -87,12 +89,14 @@ impl App {
                 PushIntent::Publish(_) => Outgoing::Publish,
                 _ => Outgoing::Upstream,
             };
-            let (subjects, total) = git.outgoing(root, target, &oid, PUSH_PREVIEW)?;
+            let (subjects, total) = git.outgoing(root, target, &oid, usize::MAX)?;
+            let files = git.outgoing_files(root, target, &oid)?;
             let loaded = Loaded::PushUpTo {
                 intent,
                 oid,
                 subjects,
                 total,
+                files,
             };
             Ok((String::new(), Then::History(Box::new(loaded))))
         });
@@ -124,22 +128,24 @@ impl App {
                 oid,
                 subjects,
                 total,
-            } => self.open_push_up_to(intent, oid, subjects, total),
+                files,
+            } => self.open_push_up_to(intent, oid, subjects, total, files),
         }
     }
 
-    /// 打开推送到提交 `oid` 为止的推送对话框；`subjects`、`total` 是会送出的提交。
+    /// 打开推送到提交 `oid` 为止的推送对话框；`subjects`、`total`、`files` 是会送出的提交和改动。
     fn open_push_up_to(
         &mut self,
         intent: PushIntent,
         oid: String,
         subjects: Vec<String>,
         total: usize,
+        files: Vec<(winc_editor::git::Change, String)>,
     ) {
         if self.overlays.form_dialog.is_some() {
             return;
         }
-        self.open_push_dialog(intent, subjects, total);
+        self.open_push_dialog(intent, subjects, total, files);
         if let Some(dialog) = &mut self.overlays.form_dialog
             && let FormKind::Transfer(form) = &mut dialog.kind
         {

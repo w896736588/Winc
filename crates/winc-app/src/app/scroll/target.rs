@@ -203,7 +203,20 @@ impl App {
                 self.popup_wheel(dy);
                 self.pointer.mouse = mouse;
             }
-            ScrollTarget::Dialog => self.rebase_wheel(dy),
+            // 推送、拉取对话框滚动提交和改动的列表；交互式变基对话框滚动它的提交列表。
+            ScrollTarget::Dialog => {
+                if matches!(
+                    self.overlays
+                        .form_dialog
+                        .as_ref()
+                        .map(|dialog| &dialog.kind),
+                    Some(crate::app::git::form::FormKind::Transfer(_))
+                ) {
+                    self.transfer_wheel(dy);
+                } else {
+                    self.rebase_wheel(dy);
+                }
+            }
             ScrollTarget::Settings(true) => self.settings_scroll_by(dy),
             ScrollTarget::TerminalFind(on_field) => {
                 if let Some(find) = self.terminal.find.as_mut().filter(|_| on_field) {

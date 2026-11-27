@@ -385,6 +385,11 @@ impl App {
         });
         let terminal_find =
             (self.terminal.find.as_ref()).map(|f| (Focus::TerminalFind, true, &f.field));
+        let log_branches = (
+            Focus::LogBranches,
+            self.log_active() && self.state.log_branches.unwrap_or(true),
+            &self.git.log.branch_search,
+        );
         let shown = self.panel_shown();
         let g = &self.panels.global;
         let panel = [
@@ -404,6 +409,7 @@ impl App {
             .chain(prompt)
             .chain(rename)
             .chain(terminal_find)
+            .chain([log_branches])
             .chain(panel)
             .find(|(_, shown, f)| *shown && f.view.area.contains(x, y))
             .map(|(focus, ..)| focus)

@@ -385,6 +385,10 @@ git-push-form-title-upto = Push { $branch } up to { $commit }
 git-push-form-remote = Remote
 git-push-form-branch = Branch
 git-push-form-commits = Commits
+git-push-form-changes = { $count ->
+    [one] 1 changed file
+   *[other] { $count } changed files
+}
 git-push-form-tags = Push tags
 git-push-form-tags-hint = All local tags
 git-push-form-pushing = Pushing…

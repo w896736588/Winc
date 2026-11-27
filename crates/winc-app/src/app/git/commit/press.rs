@@ -108,6 +108,30 @@ impl App {
             CommitTarget::Location => self.open_places(true),
             CommitTarget::Branch => self.open_branch_picker(GitAnchor::Branch),
             CommitTarget::Sync => self.git_sync(),
+            // 拉取、获取照旧执行；推送先弹出对话框列出会送出的提交和改动，可以改远程和目标分支，
+            // 不论是否关掉了推送确认（同「推送到…」）。
+            CommitTarget::Push => {
+                use crate::app::PickerPart;
+                if self.picker_action_enabled(PickerPart::Push) {
+                    self.push_to();
+                }
+                return;
+            }
+            CommitTarget::Pull | CommitTarget::Fetch => {
+                use crate::app::PickerPart;
+                let part = match target {
+                    CommitTarget::Pull => PickerPart::Pull,
+                    _ => PickerPart::Fetch,
+                };
+                if !self.picker_action_enabled(part) {
+                    return;
+                }
+                let command = match part {
+                    PickerPart::Pull => MenuCommand::GitPull,
+                    _ => MenuCommand::GitFetch,
+                };
+                self.run_branch_command(command);
+            }
             // 按住 ⌥ 时按钮写的是「提交并推送」（见 `App::commit_pushes`）。
             CommitTarget::Commit if self.commit_pushes() => self.confirm_commit_and_push(),
             CommitTarget::Commit => self.git_commit(),

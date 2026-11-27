@@ -151,8 +151,18 @@ const SUMMARY_REPOSITORIES: usize = 32;
 
 /// 后台深层查找的结果：（查找的目录，找到的仓库）。
 type ScannedRepositories = (PathBuf, Vec<PathBuf>);
-/// 等着确认的推送：要做的推送、会送出的提交的标题（最新的在前）和总数。
-pub type PushPreview = (commit::PushIntent, Vec<String>, usize);
+/// 等着确认的推送：要做的推送、会送出的提交的标题（最新的在前）和总数，以及这些提交改过的
+/// 文件（推送对话框里列出；同步的确认框只用前几项）。
+pub struct PushPreview {
+    /// 要做的推送。
+    pub intent: commit::PushIntent,
+    /// 会送出的提交的标题，最新的在前。
+    pub subjects: Vec<String>,
+    /// 会送出的提交数。
+    pub total: usize,
+    /// 会送出的改动：状态和相对仓库根目录的路径（见 `winc_editor::git::Git::outgoing_files`）。
+    pub files: Vec<(winc_editor::git::Change, String)>,
+}
 
 /// Git 模块的状态。
 pub(crate) struct GitState {

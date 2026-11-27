@@ -36,6 +36,64 @@ pub(super) fn draw_header(
         }
         hits.push((rect, target));
     }
+    if let Some(sync) = parts.sync {
+        draw_sync_buttons(app, frame, header, sync, hits);
+    }
+}
+
+/// 绘制「Git 日志」按钮左边的拉取、获取、推送按钮：向下实线箭头、向下虚线箭头、向上实线箭头。
+///
+/// 有 Git 操作在跑、没有远程等情况下与分支选择器相同地变灰，点击时不执行。拉取、推送只在有
+/// 提交可拉取（落后上游）、可推送（领先上游，或还没有上游的待发布分支）时用正文色，其余时候淡灰：
+/// 箭头是否明亮本身就是「有没有事可做」的提示。获取没有可比的状态，始终用次要色。
+fn draw_sync_buttons(
+    app: &App,
+    frame: &mut Frame<'_>,
+    clip: Rect,
+    rects: [Rect; 3],
+    hits: &mut Vec<(Rect, CommitTarget)>,
+) {
+    use crate::app::PickerPart;
+    let p = app.palette;
+    let state = app.git_sync_state();
+    let targets = [CommitTarget::Pull, CommitTarget::Fetch, CommitTarget::Push];
+    for (rect, target) in rects.into_iter().zip(targets) {
+        let part = match target {
+            CommitTarget::Pull => PickerPart::Pull,
+            CommitTarget::Fetch => PickerPart::Fetch,
+            _ => PickerPart::Push,
+        };
+        let enabled = app.picker_action_enabled(part);
+        let hovered = enabled && app.pointer.hover == Hover::Commit(target);
+        // 有没有可拉取、可推送的提交（见 `App::git_sync_state`）；获取总是可以执行。
+        let waiting = match target {
+            CommitTarget::Pull => matches!(state, SyncState::Pull(_) | SyncState::Both { .. }),
+            CommitTarget::Push => {
+                matches!(
+                    state,
+                    SyncState::Push(_) | SyncState::Both { .. } | SyncState::Publish
+                )
+            }
+            _ => true,
+        };
+        draw_button(frame, p, rect, clip, hovered, false);
+        let ink = if !enabled {
+            p.text_dim
+        } else if hovered || waiting && target != CommitTarget::Fetch {
+            p.text
+        } else if target == CommitTarget::Fetch {
+            p.text_muted
+        } else {
+            p.text_dim
+        };
+        let at = center(rect);
+        match target {
+            CommitTarget::Pull => icons::pull_arrow(frame, at, ink, rect),
+            CommitTarget::Fetch => icons::fetch_arrow(frame, at, ink, rect),
+            _ => icons::push_arrow(frame, at, ink, rect),
+        }
+        hits.push((rect, target));
+    }
 }
 
 /// 绘制标题行下面的 Git 上下文一行。

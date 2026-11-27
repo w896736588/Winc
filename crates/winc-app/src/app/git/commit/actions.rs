@@ -7,6 +7,7 @@ use winc_i18n::t;
 
 use super::*;
 use crate::app::NoticeKind;
+use crate::app::git::PushPreview;
 use crate::app::git::branch::{Then, keep_changes};
 use crate::app::lifecycle::notice::NoticeAction;
 
@@ -154,6 +155,9 @@ impl App {
     }
 
     /// 在后台读出 `intent` 会送出的提交，读到以后确认（[`App::take_push_preview`]）。
+    ///
+    /// 推送对话框要列出全部提交和改动，因此不限条数；同步的确认框只放得下几个提交的标题，
+    /// 读 [`PUSH_PREVIEW`] 个。
     fn preview_push(&mut self, intent: PushIntent) {
         // 先在后台读出会送出的提交，读到以后再问（[`App::take_push_preview`]）：确认框里列出它们，
         // 推送之前看得到送出去的是什么。
@@ -166,9 +170,28 @@ impl App {
                 PushIntent::Publish(_) => winc_editor::git::Outgoing::Publish,
                 _ => winc_editor::git::Outgoing::Upstream,
             };
-            let read = (tool.ok()).map(|git| git.outgoing(&root, target, "HEAD", PUSH_PREVIEW));
-            let (subjects, total) = read.and_then(Result::ok).unwrap_or_default();
-            *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((intent, subjects, total));
+            let dialog = intent != PushIntent::Sync;
+            let limit = match dialog {
+                true => usize::MAX,
+                false => PUSH_PREVIEW,
+            };
+            let read = (tool.ok()).map(|git| {
+                let (subjects, total) = git
+                    .outgoing(&root, target, "HEAD", limit)
+                    .unwrap_or_default();
+                let files = match dialog {
+                    true => git.outgoing_files(&root, target, "HEAD").unwrap_or_default(),
+                    false => Vec::new(),
+                };
+                (subjects, total, files)
+            });
+            let (subjects, total, files) = read.unwrap_or_default();
+            *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(PushPreview {
+                intent,
+                subjects,
+                total,
+                files,
+            });
         });
         // 没有事件循环（测试中）时后台的工作已经就地做完：直接取用。
         self.take_push_preview();
@@ -182,13 +205,19 @@ impl App {
         let preview = (self.git.push_preview.lock())
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        let Some((intent, subjects, total)) = preview else {
+        let Some(PushPreview {
+            intent,
+            subjects,
+            total,
+            files,
+        }) = preview
+        else {
             return;
         };
         // 推送和发布用推送对话框：可以改远程和目标分支、一并推送标签。同步先拉取再推送，目标
         // 不能改，仍用提示框确认。
         if intent != PushIntent::Sync {
-            self.open_push_dialog(intent, subjects, total);
+            self.open_push_dialog(intent, subjects, total, files);
             return;
         }
         let (message, mut detail, button) = self.push_prompt(&intent);

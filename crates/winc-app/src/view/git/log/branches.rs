@@ -27,12 +27,57 @@ pub(super) fn draw_branches_button(
     hits.push((button, LogTarget::BranchesToggle));
 }
 
+/// 绘制分支面板顶部的分支名搜索框，返回它的命中范围；面板没有完全打开时为 `None`。
+///
+/// 与标题栏的筛选框共用 `field_box`：无焦点时没有边框、只铺一层淡底色，有焦点时加强调色外环。
+pub(super) fn draw_branch_search(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    parts: &LogParts,
+) -> Option<Rect> {
+    let area = parts.branches;
+    if area.w <= 0.0 || area.w < parts.branches_w {
+        return None;
+    }
+    let p = app.palette;
+    let full = parts.branches_w - 1.0;
+    let search = Rect::new(
+        area.x + 8.0,
+        area.y + LOG_LIST_PAD,
+        (full - 17.0).max(0.0),
+        BRANCHES_SEARCH_H,
+    );
+    let focused = app.focus == Focus::LogBranches;
+    field_box(app, frame, search, p.editor_bg, focused, false);
+    icons::magnifier(
+        frame,
+        (search.x + 14.0, search.y + search.h / 2.0),
+        p.text_dim,
+        search,
+    );
+    let text = Rect::new(
+        search.x + 26.0,
+        search.y,
+        (search.w - 32.0).max(0.0),
+        search.h,
+    );
+    let placeholder = t!("git-log-branch-picker-placeholder");
+    let mut field = std::mem::take(&mut app.git.log.branch_search);
+    let caret = draw_bar_field(app, frame, text, &mut field, placeholder, focused);
+    app.git.log.branch_search = field;
+    if focused {
+        app.ime.cursor = caret;
+    }
+    Some(search)
+}
+
 /// 绘制分支面板，返回最大滚动距离（逻辑像素）；名字展开后仍写不下的行记进 `long`。
 ///
 /// 各行按文件列表的样子排成树（见 `files::draw_file_list`）：分组标题是折叠箭头、小号淡色的组名和右
 /// 端的数量徽标，组里的分支、标签和按 `/` 分出的目录缩进一层，上级各层有缩进参考线；当前分支打勾，
 /// 其余分支、标签前面是淡色的记号。正在按它筛选的行铺选中的底色，没有按分支筛选时「全部分支」铺选中
-/// 的底色。放不下的名字在截断处淡出，鼠标停着时展开成全名，可以伸到提交列表上面。
+/// 的底色。放不下的名字在截断处淡出，鼠标停着时展开成全名，可以伸到提交列表上面。各行在顶部的搜索框
+/// 下方滚动（见 [`draw_branch_search`]）。
 pub(super) fn draw_branches(
     app: &App,
     frame: &mut Frame<'_>,
@@ -60,6 +105,12 @@ pub(super) fn draw_branches(
     // 打开、关闭途中面板只露出右边一段：各行按完整的宽度排，跟着右边缘从左边滑进、滑出。
     let full = parts.branches_w - 1.0;
     let slid = Rect::new(area.right() - full, area.y, full, area.h);
+    // 搜索框占住面板顶部，各行只在它下方滚动。
+    let rows_area = {
+        let search = parts.branches_search();
+        let top = (search.bottom() + LOG_LIST_PAD).min(area.bottom());
+        Rect::new(area.x, top, area.w, (area.bottom() - top).max(0.0))
+    };
     // 展开、收起途中按行数较多的那一版画（见 `PanelFold`）。
     let fold = app.git.log.branch_fold.as_ref();
     let rows = fold.map_or_else(|| app.log_branch_rows(), |f| f.rows.clone());
@@ -67,16 +118,17 @@ pub(super) fn draw_branches(
     let lane = Lane {
         names: &app.git.log.branch_names,
         content: (slid.x + 6.0 + ROW_PAD, slid.w - 12.0 - 2.0 * ROW_PAD),
-        clip: area,
+        clip: rows_area,
         // 全名可以伸到提交列表上面，右边留 8 逻辑像素；打开、关闭途中不伸出。
         spill: opened.then_some(parts.list.right() - 8.0),
     };
     let filter = &view.query.branches;
-    let top = area.y + LOG_LIST_PAD - drawn_scroll(app.git.log.branches_scroll);
+    let top = rows_area.y - drawn_scroll(app.git.log.branches_scroll);
     let idle = app.idle_pointer();
     let mut spills = Vec::new();
     for (i, row) in rows.iter().enumerate() {
-        let (y, clip) = fold_slot(fold, (top, i), area);
+        let (y, slot_clip) = fold_slot(fold, (top, i), area);
+        let clip = slot_clip.intersect(rows_area);
         let band = Rect::new(slid.x + 6.0, y, slid.w - 12.0, BRANCH_ROW);
         if clip.h <= 0.0 || band.bottom() < clip.y || band.y > clip.bottom() {
             continue;
@@ -110,8 +162,22 @@ pub(super) fn draw_branches(
             if let Some(spill) = out.spill.filter(|_| hovered) {
                 spills.push((spill, target));
             }
-            hits.push((band.intersect(area), target));
+            hits.push((band.intersect(rows_area), target));
         }
+    }
+    // 搜索没有命中任何分支、标签时给一句说明。
+    if rows.is_empty() {
+        let text = t!("git-branch-picker-empty");
+        let size = app.fonts.ui_small;
+        let width = frame.measure(FontKind::Ui, size, text);
+        let row = Rect::new(
+            rows_area.x,
+            rows_area.y + LOG_LIST_PAD,
+            rows_area.w,
+            BRANCH_ROW,
+        );
+        let x = rows_area.x + (rows_area.w - width).max(0.0) / 2.0;
+        ui_text_small(frame, app, x, row, text, p.text_dim, rows_area);
     }
     // 右边缘的命中范围向两侧各扩展 3 逻辑像素，放在命中表最前面，先于各行判定；打开、关闭
     // 途中不能拖动。
@@ -124,7 +190,7 @@ pub(super) fn draw_branches(
         hits.insert(0, spill);
     }
     let content = LOG_LIST_PAD + rows.len() as f32 * BRANCH_ROW + LOG_LIST_PAD;
-    (content - area.h).max(0.0)
+    (content - rows_area.h).max(0.0)
 }
 
 /// 分支面板里一行的位置和状态。

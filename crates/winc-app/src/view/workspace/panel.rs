@@ -1150,22 +1150,29 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((rect, tip))
         }
         Hover::Commit(target) => {
-            let rect = app
-                .commit_parts()
-                .tools
-                .iter()
-                .find(|(_, t)| *t == target)?
-                .0;
-            if target == CommitTarget::Log {
-                return Some((
-                    rect,
-                    with_key(t!("workspace-tip-git-log"), Some(Action::GitShowLog)),
-                ));
-            }
-            if target == CommitTarget::Refresh {
-                return Some((rect, t!("workspace-tip-git-refresh").to_owned()));
-            }
-            Some((rect, t!("workspace-tip-more-actions").to_owned()))
+            let parts = app.commit_parts();
+            let rect = match parts.tools.iter().find(|(_, t)| *t == target) {
+                Some((rect, _)) => *rect,
+                None => {
+                    // 拉取、获取、推送三个按钮不在 `tools` 里。
+                    let sync = parts.sync?;
+                    let slot = [CommitTarget::Pull, CommitTarget::Fetch, CommitTarget::Push]
+                        .into_iter()
+                        .position(|t| t == target)?;
+                    sync[slot]
+                }
+            };
+            let tip = match target {
+                CommitTarget::Log => {
+                    with_key(t!("workspace-tip-git-log"), Some(Action::GitShowLog))
+                }
+                CommitTarget::Refresh => t!("workspace-tip-git-refresh").to_owned(),
+                CommitTarget::Pull => with_key(t!("cmd-git-pull"), Some(Action::GitPull)),
+                CommitTarget::Fetch => with_key(t!("cmd-git-fetch"), Some(Action::GitFetch)),
+                CommitTarget::Push => with_key(t!("cmd-git-push"), Some(Action::GitPush)),
+                _ => t!("workspace-tip-more-actions").to_owned(),
+            };
+            Some((rect, tip))
         }
         Hover::Merge(target) => {
             use crate::app::git::merge::MergeTarget;

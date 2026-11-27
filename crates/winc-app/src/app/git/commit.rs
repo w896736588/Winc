@@ -68,6 +68,14 @@ use crate::theme::{BUTTON_GAP, SIDEBAR_GAP, SIDEBAR_HEADER, SIDEBAR_LIST_GAP, TO
 pub(crate) const COMMIT_ROW: f32 = 24.0;
 /// 标题行上工具按钮的边长（逻辑像素），与 `BUTTON_SMALL` 同高。
 const TOOL: f32 = 24.0;
+/// 标题行 Git 日志按钮左边的拉取、获取、推送按钮的边长，与工具按钮相同。
+const SYNC_TOOL: f32 = TOOL;
+/// 相邻两个同步按钮之间的间距（逻辑像素）。
+const SYNC_GAP: f32 = 4.0;
+/// 推送按钮与「Git 日志」按钮之间的间距（逻辑像素）。
+const SYNC_TOOL_GAP: f32 = 8.0;
+/// 加上同步按钮时至少留给项目按钮的宽度（逻辑像素）：约「Winc」加徽章和下拉箭头。
+const SYNC_MIN_NAME: f32 = 100.0;
 /// 提交卡片底行的高度（逻辑像素）：提交按钮一行，与 `BUTTON_SMALL` 同高。
 const FOOTER_H: f32 = 24.0;
 /// 提交卡片里「修改上次提交」一行的高度（逻辑像素）：边长 12 的勾选框上下各留 3。
@@ -472,6 +480,12 @@ impl FoldMotion {
 pub enum CommitTarget {
     /// 标题行的「Git 日志」：打开日志标签。
     Log,
+    /// 标题行 Git 日志按钮左边的「拉取」：拉取当前分支的上游。
+    Pull,
+    /// 标题行 Git 日志按钮左边的「获取」：获取各个远程的分支。
+    Fetch,
+    /// 标题行 Git 日志按钮左边的「推送」：推送当前分支。
+    Push,
     /// 标题行的「刷新」：重新读取状态和分支，读取期间图标旋转。
     Refresh,
     /// 标题行的「⋯」：弹出同步、储藏、远程仓库和显示方式的菜单。
@@ -634,6 +648,8 @@ pub(crate) struct CommitParts {
     pub header: Rect,
     /// 标题行右端的「Git 日志」「刷新」「⋯」三个按钮。
     pub tools: [(Rect, CommitTarget); 3],
+    /// 「Git 日志」左边的拉取、获取、推送三个按钮（顺序如此）；侧栏太窄、放不下时为 `None`。
+    pub sync: Option<[Rect; 3]>,
     /// 合并、变基等操作暂停时改动列表上方的说明条及其右端的「中止」按钮。
     ///
     /// 没有进行中的操作时为 `None`。

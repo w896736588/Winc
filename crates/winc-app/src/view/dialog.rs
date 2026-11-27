@@ -61,17 +61,25 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let (copy, new_window, checkout) = (dialog.copy, dialog.new_window, dialog.checkout);
     let (running, error, focus) = (dialog.running.is_some(), dialog.error.clone(), dialog.focus);
     let empty = dialog.name.text().trim().is_empty();
-    // 推送、拉取对话框：当前分支、会送出或带来的提交的标题和提交数。
-    let push = match &dialog.kind {
-        FormKind::Transfer(form) => Some((form.branch.clone(), form.subjects.clone(), form.total)),
+    // 推送、拉取对话框：当前分支、会送出或带来的提交的标题和提交数，推送时还有改动的文件和
+    // 列表滚动到的位置。
+    let transfer = match &dialog.kind {
+        FormKind::Transfer(form) => Some((
+            form.branch.clone(),
+            form.subjects.clone(),
+            form.total,
+            form.files.clone(),
+            form.scroll,
+        )),
         _ => None,
     };
+    let push = transfer.as_ref();
     let upto = match &dialog.kind {
         FormKind::Transfer(form) => form.upto.as_deref().map(crate::app::git::log::short),
         _ => None,
     };
     let pull = matches!(&dialog.kind, FormKind::Transfer(f) if f.direction == Direction::Pull);
-    let branch = push.as_ref().map_or("", |(branch, ..)| branch.as_str());
+    let branch = push.map_or("", |(branch, ..)| branch.as_str());
     let (title, labels, placeholder) = match dialog.kind {
         FormKind::Transfer(_) => (
             match (pull, upto) {
@@ -217,25 +225,53 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         true,
         hover,
     );
-    // 会送出或带来的提交：每个标题一行，没有列出的写明个数。
-    if let Some((_, subjects, total)) = &push {
+    // 会送出或带来的提交：每个标题一行；推送时接着列出改动的文件。放不下时按滚轮滚动到的
+    // 位置显示，右边缘一条滑块。
+    if let Some((_, subjects, total, files, scroll)) = &push {
         let block = layout.message;
-        let line = |i: usize| {
-            let y = block.y + i as f32 * crate::layout::QUESTION_LINE_H;
-            Rect::new(block.x, y, block.w, crate::layout::QUESTION_LINE_H)
-        };
-        for (i, subject) in subjects.iter().enumerate() {
-            let text = ellipsize(frame, subject, app.fonts.ui_small, block.w);
-            ui_text_small(frame, app, block.x, line(i), &text, p.text_muted, card);
+        let mut rows: Vec<(String, Color)> = subjects
+            .iter()
+            .map(|subject| (subject.clone(), p.text_muted))
+            .collect();
+        if *total > subjects.len() {
+            rows.push((
+                t!(
+                    "git-push-confirm-more",
+                    count = total.saturating_sub(subjects.len())
+                ),
+                p.text_dim,
+            ));
         }
-        let rest = match (subjects.is_empty(), total - subjects.len().min(*total)) {
-            (true, 0) => Some(t!("git-push-form-nothing").to_owned()),
-            (_, 0) => None,
-            (_, more) => Some(t!("git-push-confirm-more", count = more)),
-        };
-        if let Some(rest) = rest {
-            let row = line(subjects.len());
-            ui_text_small(frame, app, block.x, row, &rest, p.text_dim, card);
+        if !files.is_empty() {
+            // 提交和改动之间空一行，改动前面一行写明共几个文件。
+            rows.push((String::new(), p.text_muted));
+            rows.push((t!("git-push-form-changes", count = files.len()), p.text_dim));
+            rows.extend(
+                files
+                    .iter()
+                    .map(|(change, path)| (format!("{} {path}", change.letter()), p.text_muted)),
+            );
+        }
+        if rows.is_empty() {
+            rows.push((t!("git-push-form-nothing").to_owned(), p.text_dim));
+        }
+        let content = rows.len() as f32 * QUESTION_LINE_H;
+        let scroll = f64::from(*scroll).clamp(0.0, (content - block.h).max(0.0) as f64) as f32;
+        for (i, (text, color)) in rows.iter().enumerate() {
+            let y = block.y + i as f32 * QUESTION_LINE_H - scroll;
+            let row = Rect::new(block.x, y, block.w, QUESTION_LINE_H);
+            if row.bottom() <= block.y || row.y >= block.bottom() {
+                continue;
+            }
+            let text = ellipsize(frame, text, app.fonts.ui_small, block.w);
+            ui_text_small(frame, app, block.x, row, &text, *color, block);
+        }
+        // 行数超过框高时右边缘一条滑块，表示还有未显示的内容。
+        if content > block.h && block.h > 0.0 {
+            let h = (block.h * block.h / content).max(16.0);
+            let y = block.y + (block.h - h) * (scroll / (content - block.h)).clamp(0.0, 1.0);
+            let thumb = Rect::new(block.right() - 3.0, y, 3.0, h);
+            frame.rect_clipped(thumb, p.text_dim.alpha(0.5), 1.5, block);
         }
     }
 
@@ -902,8 +938,9 @@ fn draw_field(
         focused,
         focused && part == DialogPart::Branch && plan.problem.is_some(),
     );
-    // 右端有选择按钮的输入框，文字让出按钮的位置。
-    let button = (app.dialog_layout().choose).filter(|_| part == DialogPart::Third);
+    // 右端有选择按钮的输入框（密钥文件的选文件），文字让出按钮的位置。
+    let button = (app.dialog_layout().choose)
+        .filter(|button| rect.contains(button.x, button.y));
     let Some(mut dialog) = app.overlays.form_dialog.take() else {
         return;
     };
@@ -922,6 +959,8 @@ fn draw_field(
     let field = match part {
         DialogPart::Second => &mut dialog.second,
         DialogPart::Third => &mut dialog.third,
+        DialogPart::Fourth => &mut dialog.fourth,
+        DialogPart::Fifth => &mut dialog.fifth,
         _ => &mut dialog.name,
     };
     let caret = draw_bar_field(app, frame, area, field, placeholder, focused);

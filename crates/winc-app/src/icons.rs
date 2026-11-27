@@ -890,6 +890,46 @@ pub fn push_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, cli
     frame.stroke(&shapes, 1.25, color, clip);
 }
 
+/// 绘制「拉取」图标，约 6×11：向下的实线箭头（竖直箭杆加箭头）。
+pub fn pull_arrow(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (top, tip, arm) = (cy - 5.5, cy + 5.0, 3.0);
+    let shapes = [
+        Stroke::Line(cx, top, cx, tip),
+        Stroke::Line(cx, tip, cx - arm, tip - arm),
+        Stroke::Line(cx, tip, cx + arm, tip - arm),
+    ];
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
+/// 绘制「获取」图标，约 6×11：向下的虚线箭头，箭杆由三段短线组成，与 [`pull_arrow`] 区分。
+pub fn fetch_arrow(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (top, tip, arm) = (cy - 5.5, cy + 5.0, 3.0);
+    let (dash, gap) = (1.5, 2.5);
+    let mut y = top;
+    let mut stem = [Stroke::Line(cx, y, cx, y); 3];
+    for dash_stroke in &mut stem {
+        *dash_stroke = Stroke::Line(cx, y, cx, y + dash);
+        y += dash + gap;
+    }
+    let head = [
+        Stroke::Line(cx, tip, cx - arm, tip - arm),
+        Stroke::Line(cx, tip, cx + arm, tip - arm),
+    ];
+    let shapes: Strokes<5> = joined(&[&stem, &head]);
+    frame.stroke(shapes.as_slice(), RING_STROKE, color, clip);
+}
+
+/// 绘制「推送」图标，约 6×11：向上的实线箭头，与 [`pull_arrow`] 方向相反。
+pub fn push_arrow(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (bottom, tip, arm) = (cy + 5.5, cy - 5.0, 3.0);
+    let shapes = [
+        Stroke::Line(cx, bottom, cx, tip),
+        Stroke::Line(cx, tip, cx - arm, tip + arm),
+        Stroke::Line(cx, tip, cx + arm, tip + arm),
+    ];
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
 /// 绘制列表各行名字前面的引用图标，约 12×10，笔宽 1.25 逻辑像素：与 [`branch_small`] 同样粗细，
 /// 用在小号文字旁。图形与 [`ref_mark`] 相同，按列表的行放大，横向不再压在 9 以内。
 pub fn ref_icon(

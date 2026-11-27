@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::git::form::FormKind;
+use crate::layout::DialogPart;
 use winc_config::Remote;
 use winit::keyboard::{Key, NamedKey};
 
@@ -87,6 +88,47 @@ fn a_saved_connection_is_copied_from_the_picker_and_removed() {
             .iter()
             .all(|remote| remote.directory != "/srv/app2")
     );
+}
+
+#[test]
+fn the_save_dialog_draws_each_field_on_its_own_row() {
+    let mut app = blank_app(false);
+    app.open_saved_dialog("me@host.example", "/srv/app", false);
+    paint(&mut app);
+    let layout = app.dialog_layout();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
+    // 每个输入框按自己的位置和内容绘制：账号、密码、密钥文件、远端目录不再共用地址的输入框
+    // （否则后三项都显示地址，看起来改不了）。
+    for (field, rect) in [
+        (&dialog.name, layout.branch),
+        (&dialog.second, layout.second),
+        (&dialog.third, layout.third),
+        (&dialog.fourth, layout.fourth),
+        (&dialog.fifth, layout.fifth),
+    ] {
+        assert!(field.view.area.h > 0.0);
+        assert_eq!(field.view.area.y, rect.y);
+    }
+    let areas: Vec<f32> = [layout.branch, layout.second, layout.third, layout.fourth, layout.fifth]
+        .into_iter()
+        .map(|rect| rect.y)
+        .collect();
+    assert!(areas.windows(2).all(|pair| pair[0] < pair[1]));
+
+    // 点进「远端目录」：键盘焦点落在这一项上，字符键交给输入框（`false` 表示不是对话框
+    // 自己的按键）；之前焦点在密钥文件、远端目录上时这些键被吞掉，改不了。
+    let at = (
+        layout.fifth.right() - 14.0,
+        layout.fifth.y + layout.fifth.h / 2.0,
+    );
+    click(&mut app, at);
+    assert_eq!(app.overlays.form_dialog.as_ref().unwrap().focus, DialogPart::Fifth);
+    let x = Key::Character("x".into());
+    assert!(!app.dialog_key(&x, "x", false));
+    for part in [DialogPart::Third, DialogPart::Fourth, DialogPart::Fifth] {
+        app.overlays.form_dialog.as_mut().unwrap().focus = part;
+        assert!(!app.dialog_key(&x, "x", false), "{part:?}");
+    }
 }
 
 #[test]

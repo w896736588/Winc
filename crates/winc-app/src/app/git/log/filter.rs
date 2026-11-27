@@ -351,6 +351,29 @@ impl App {
         }
     }
 
+    /// 分支面板搜索输入框里的按键：`Esc` 有文字时清空、没有时回到列表，回车、`↓` 回到列表，
+    /// 其余交给输入框。
+    pub(in crate::app) fn on_key_log_branches(
+        &mut self,
+        event: &winit::event::KeyEvent,
+        base: &str,
+        cmd: bool,
+    ) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) if !self.git.log.branch_search.text().is_empty() => {
+                self.edit_field(|f| {
+                    f.set_text("");
+                    true
+                });
+            }
+            Key::Named(NamedKey::Escape | NamedKey::Enter | NamedKey::ArrowDown) => {
+                self.focus = Focus::Editor;
+                self.request_redraw();
+            }
+            _ => self.on_key_field(event, base, cmd),
+        }
+    }
+
     /// 作者菜单里列的作者：已经取回来的提交里的作者，按提交数从多到少，最多 30 个
     /// （再长菜单就超出窗口高度）。
     ///
